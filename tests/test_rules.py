@@ -58,8 +58,8 @@ def test_command_argument(message, command, expected):
 @pytest.mark.parametrize(
     ("message", "is_tome", "expected"),
     [
-        ("问 今天天气如何", True, "今天天气如何"),
-        ("问", True, ""),
+        ("问 今天天气如何", True, "问 今天天气如何"),
+        ("问", True, "问"),
         ("介绍一下你自己", True, "介绍一下你自己"),
         ("", True, ""),
         ("/问 今天天气如何", False, None),

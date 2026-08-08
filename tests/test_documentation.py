@@ -21,3 +21,12 @@ def test_feature_catalog_covers_help_commands():
 
     assert commands
     assert not {command for command in commands if f"@nao {command}" not in features}
+
+
+def test_ai_documentation_uses_natural_mention_syntax():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    features = (ROOT / "FEATURES.md").read_text(encoding="utf-8")
+
+    assert "@机器人 问 问题" not in readme
+    assert "@nao 问 问题" not in features
+    assert "@nao 问 问题" not in HELP_TEXT

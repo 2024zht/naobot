@@ -5,7 +5,7 @@ HELP_TEXT = """nao 可用指令：
 @nao 帮助 - 查看指令
 @nao 状态 - 检查运行状态
 @nao 关于 - 了解 nao
-@nao 问 问题 - 使用 DeepSeek AI 问答
+@nao 你的问题 - 使用 DeepSeek AI 问答
 @nao 禁言 @成员 [分钟] - 默认禁言 10 分钟
 @nao 踢出 @成员 - 将成员移出群聊
 @nao 撤回 - 回复一条消息后撤回它
@@ -55,8 +55,7 @@ def command_argument(text: str, command: str) -> str | None:
 def ai_question(text: str, is_tome: bool) -> str | None:
     if not is_tome:
         return None
-    command_question = command_argument(text, "问")
-    return text.strip() if command_question is None else command_question
+    return text.strip()
 
 
 def parse_mute_duration(text: str) -> int | None:
