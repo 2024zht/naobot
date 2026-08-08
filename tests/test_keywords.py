@@ -8,10 +8,11 @@ from nao_bot.keywords import MAX_KEYWORDS, KeywordCommand, KeywordStore, parse_k
 @pytest.mark.parametrize(
     ("message", "expected"),
     [
-        ("/关键词 添加 早上好=早上好呀", KeywordCommand("add", "早上好", "早上好呀")),
-        ("/关键词 添加 晚安＝做个好梦", KeywordCommand("add", "晚安", "做个好梦")),
-        ("/关键词 删除 早上好", KeywordCommand("delete", "早上好")),
-        ("/关键词 列表", KeywordCommand("list")),
+        ("关键词 添加 早上好=早上好呀", KeywordCommand("add", "早上好", "早上好呀")),
+        ("关键词 添加 晚安＝做个好梦", KeywordCommand("add", "晚安", "做个好梦")),
+        ("关键词 删除 早上好", KeywordCommand("delete", "早上好")),
+        ("关键词 列表", KeywordCommand("list")),
+        ("/关键词 列表", None),
         ("普通消息", None),
     ],
 )
@@ -22,11 +23,11 @@ def test_parse_keyword_command(message, expected):
 @pytest.mark.parametrize(
     "message",
     [
-        "/关键词",
-        "/关键词 添加 缺少分隔符",
-        "/关键词 添加 =空触发",
-        "/关键词 添加 /状态=冲突",
-        "/关键词 未知操作",
+        "关键词",
+        "关键词 添加 缺少分隔符",
+        "关键词 添加 =空触发",
+        "关键词 添加 /状态=冲突",
+        "关键词 未知操作",
     ],
 )
 def test_invalid_keyword_command(message):

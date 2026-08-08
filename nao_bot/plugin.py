@@ -35,6 +35,7 @@ from .rules import (
     parse_mute_duration,
     parse_qq_ids,
     reply_for_text,
+    select_target_user_id,
 )
 
 
@@ -83,17 +84,20 @@ def sender_role(event: GroupMessageEvent) -> str | None:
 
 
 def mentioned_user_id(event: GroupMessageEvent) -> int | None:
-    for segment in event.get_message():
-        if segment.type == "mention":
-            return int(segment.data["user_id"])
-    if event.reply:
-        return event.reply.sender_id
-    return None
+    mentioned_ids = (
+        int(segment.data["user_id"])
+        for segment in event.get_message()
+        if segment.type == "mention"
+    )
+    reply_sender_id = event.reply.sender_id if event.reply else None
+    return select_target_user_id(mentioned_ids, event.self_id, reply_sender_id)
 
 
 def is_management_command(event: GroupMessageEvent) -> bool:
     text = event.get_plaintext().strip()
-    return text in {"/踢出", "/撤回"} or command_argument(text, "/禁言") is not None
+    return event.is_tome() and (
+        text in {"踢出", "撤回"} or command_argument(text, "禁言") is not None
+    )
 
 
 async def can_manage(bot: Bot, event: GroupMessageEvent) -> bool:
@@ -106,8 +110,12 @@ async def can_manage(bot: Bot, event: GroupMessageEvent) -> bool:
 
 def is_moderation_command(event: GroupMessageEvent) -> bool:
     text = event.get_plaintext().strip()
-    return text == "/反诈状态" or any(
-        command_argument(text, command) is not None for command in ("/反诈记录", "/清除违规")
+    return event.is_tome() and (
+        text == "反诈状态"
+        or any(
+            command_argument(text, command) is not None
+            for command in ("反诈记录", "清除违规")
+        )
     )
 
 
@@ -134,19 +142,19 @@ async def handle_moderation_command(bot: Bot, event: GroupMessageEvent) -> None:
         await moderation_command_matcher.finish("你没有管理反诈记录的权限。")
 
     text = event.get_plaintext().strip()
-    if text == "/反诈状态":
+    if text == "反诈状态":
         await moderation_command_matcher.finish(
             "反诈防护已开启：普通成员的重要通知、诈骗话术、QQ名片、二维码和诈骗图片会被撤回；"
             f"累计 {KICK_THRESHOLD} 次自动踢出。"
         )
 
-    command = "/反诈记录" if command_argument(text, "/反诈记录") is not None else "/清除违规"
+    command = "反诈记录" if command_argument(text, "反诈记录") is not None else "清除违规"
     target_id = command_target_id(event, command)
     if target_id is None:
-        await moderation_command_matcher.finish(f"用法：{command} @成员，或 {command} QQ号")
+        await moderation_command_matcher.finish(f"用法：@nao {command} @成员，或 @nao {command} QQ号")
 
     group_id = event.data.peer_id
-    if command == "/清除违规":
+    if command == "清除违规":
         cleared = violation_store.clear(group_id, target_id)
         message = "已清除该成员的反诈违规记录。" if cleared else "该成员没有反诈违规记录。"
         await moderation_command_matcher.finish(message)
@@ -160,8 +168,12 @@ async def handle_moderation_command(bot: Bot, event: GroupMessageEvent) -> None:
 
 def is_fraud_keyword_command(event: GroupMessageEvent) -> bool:
     text = event.get_plaintext().strip()
-    return text == "/违规词列表" or any(
-        command_argument(text, command) is not None for command in ("/添加违规", "/删除违规词")
+    return event.is_tome() and (
+        text == "违规词列表"
+        or any(
+            command_argument(text, command) is not None
+            for command in ("添加违规", "删除违规词")
+        )
     )
 
 
@@ -178,27 +190,27 @@ async def handle_fraud_keyword_management(bot: Bot, event: GroupMessageEvent) ->
         await fraud_keyword_management_matcher.finish("你没有管理违规词黑名单的权限。")
 
     text = event.get_plaintext().strip()
-    if text == "/违规词列表":
+    if text == "违规词列表":
         terms = fraud_keyword_store.terms()
         if not terms:
             await fraud_keyword_management_matcher.finish("违规词黑名单还是空的。")
         lines = "\n".join(f"{index}. {term}" for index, term in enumerate(terms, 1))
         await fraud_keyword_management_matcher.finish(f"违规词黑名单（{len(terms)}）：\n{lines}")
 
-    delete_argument = command_argument(text, "/删除违规词")
+    delete_argument = command_argument(text, "删除违规词")
     if delete_argument is not None:
         if not delete_argument:
-            await fraud_keyword_management_matcher.finish("用法：/删除违规词 词条")
+            await fraud_keyword_management_matcher.finish("用法：@nao 删除违规词 词条")
         deleted = fraud_keyword_store.delete(delete_argument)
         message = f"已删除违规词：{delete_argument}" if deleted else f"没有找到违规词：{delete_argument}"
         await fraud_keyword_management_matcher.finish(message)
 
-    source_text = command_argument(text, "/添加违规") or ""
+    source_text = command_argument(text, "添加违规") or ""
     if not source_text and event.reply:
         source_text = text_from_segments(event.reply.segments)
     if not source_text:
         await fraud_keyword_management_matcher.finish(
-            "用法：/添加违规 违规内容，或回复违规消息后发送 /添加违规。"
+            "用法：@nao 添加违规 违规内容，或回复违规消息后发送 @nao 添加违规。"
         )
 
     candidates: list[str] = []
@@ -314,12 +326,12 @@ async def handle_moderation(bot: Bot, event: GroupMessageEvent, matcher: Matcher
 
 def is_keyword_command(event: GroupMessageEvent) -> bool:
     text = event.get_plaintext().strip()
-    return text == "/关键词" or text.startswith("/关键词 ")
+    return event.is_tome() and (text == "关键词" or text.startswith("关键词 "))
 
 
 keyword_management_matcher = on_message(
     rule=Rule(is_test_group) & Rule(is_keyword_command),
-    priority=6,
+    priority=4,
     block=True,
 )
 
@@ -348,7 +360,7 @@ async def handle_keyword_management(bot: Bot, event: GroupMessageEvent) -> None:
         message = f"已删除关键词：{command.trigger}" if deleted else f"没有找到关键词：{command.trigger}"
         await keyword_management_matcher.finish(message)
 
-    if reply_for_text(command.trigger) is not None:
+    if reply_for_text(command.trigger, True) is not None:
         await keyword_management_matcher.finish("这个触发词与内置回复冲突，请换一个。")
     try:
         created = keyword_store.add(command.trigger, command.reply)
@@ -372,9 +384,9 @@ async def handle_management(bot: Bot, event: GroupMessageEvent) -> None:
 
     text = event.get_plaintext().strip()
     group_id = event.data.peer_id
-    if text == "/撤回":
+    if text == "撤回":
         if not event.reply:
-            await management_matcher.finish("请回复需要撤回的消息，再发送 /撤回。")
+            await management_matcher.finish("请回复需要撤回的消息，再发送 @nao 撤回。")
         try:
             await bot.recall_group_message(group_id=group_id, message_seq=event.reply.message_seq)
         except Exception:
@@ -388,7 +400,7 @@ async def handle_management(bot: Bot, event: GroupMessageEvent) -> None:
     if target_id in {event.self_id, event.data.sender_id}:
         await management_matcher.finish("不能对机器人或你自己执行此操作。")
 
-    if text == "/踢出":
+    if text == "踢出":
         try:
             await bot.kick_group_member(group_id=group_id, user_id=target_id)
         except Exception:
@@ -416,7 +428,7 @@ def is_ai_command(event: GroupMessageEvent) -> bool:
     return ai_question(event.get_plaintext(), event.is_tome()) is not None
 
 
-ai_matcher = on_message(rule=Rule(is_test_group) & Rule(is_ai_command), priority=5, block=True)
+ai_matcher = on_message(rule=Rule(is_test_group) & Rule(is_ai_command), priority=15, block=True)
 
 
 @ai_matcher.handle()
@@ -441,12 +453,20 @@ async def handle_ai(event: GroupMessageEvent) -> None:
     await ai_matcher.finish(answer)
 
 
-static_matcher = on_message(rule=Rule(is_test_group), priority=10, block=False)
+def is_static_message(event: GroupMessageEvent) -> bool:
+    return reply_for_text(event.get_plaintext(), event.is_tome()) is not None
+
+
+static_matcher = on_message(
+    rule=Rule(is_test_group) & Rule(is_static_message),
+    priority=4,
+    block=True,
+)
 
 
 @static_matcher.handle()
 async def handle_message(event: GroupMessageEvent) -> None:
-    response = reply_for_text(event.get_plaintext())
+    response = reply_for_text(event.get_plaintext(), event.is_tome())
     if response is not None:
         await static_matcher.finish(response)
 

@@ -1,26 +1,32 @@
+from typing import Iterable
+
+
 HELP_TEXT = """nao 可用指令：
-/帮助 - 查看指令
-/状态 - 检查运行状态
-/关于 - 了解 nao
-@nao 问题 - 使用 DeepSeek AI 问答（也支持 /问）
-/禁言 @成员 [分钟] - 默认禁言 10 分钟
-/踢出 @成员 - 将成员移出群聊
-/撤回 - 回复一条消息后撤回它
-/表情包制作 - 查看表情模板
+@nao 帮助 - 查看指令
+@nao 状态 - 检查运行状态
+@nao 关于 - 了解 nao
+@nao 问 问题 - 使用 DeepSeek AI 问答
+@nao 禁言 @成员 [分钟] - 默认禁言 10 分钟
+@nao 踢出 @成员 - 将成员移出群聊
+@nao 撤回 - 回复一条消息后撤回它
+@nao 表情包制作 - 查看表情模板
 😂+🥺 - 合成两个 Emoji
-/关键词 - 查看关键词库用法
-/反诈状态 - 查看当前反诈规则
-/反诈记录 @成员 - 查看累计违规次数
-/清除违规 @成员 - 清除误判记录
-/添加违规 内容 - 管理员提取违规词（也可回复消息）
-/违规词列表 - 管理员查看违规词黑名单
-/删除违规词 词条 - 管理员删除违规词
+@nao 关键词 - 查看关键词库用法
+@nao 反诈状态 - 查看当前反诈规则
+@nao 反诈记录 @成员 - 查看累计违规次数
+@nao 清除违规 @成员 - 清除误判记录
+@nao 添加违规 内容 - 管理员提取违规词（也可回复消息）
+@nao 违规词列表 - 管理员查看违规词黑名单
+@nao 删除违规词 词条 - 管理员删除违规词
 发送“你好”也可以和我打招呼。"""
 
-REPLIES = {
-    "/帮助": HELP_TEXT,
-    "/状态": "nao 在线，运行正常。",
-    "/关于": "我是 nao 机器人助手，目前正在本群测试。",
+COMMAND_REPLIES = {
+    "帮助": HELP_TEXT,
+    "状态": "nao 在线，运行正常。",
+    "关于": "我是 nao 机器人助手，目前正在本群测试。",
+}
+
+PLAIN_REPLIES = {
     "你好": "你好，我是 nao。",
 }
 
@@ -29,8 +35,11 @@ def is_allowed_group(peer_id: int, allowed_group_id: int) -> bool:
     return peer_id == allowed_group_id
 
 
-def reply_for_text(text: str) -> str | None:
-    return REPLIES.get(text.strip())
+def reply_for_text(text: str, is_tome: bool = False) -> str | None:
+    stripped = text.strip()
+    if is_tome and stripped in COMMAND_REPLIES:
+        return COMMAND_REPLIES[stripped]
+    return PLAIN_REPLIES.get(stripped)
 
 
 def command_argument(text: str, command: str) -> str | None:
@@ -44,16 +53,14 @@ def command_argument(text: str, command: str) -> str | None:
 
 
 def ai_question(text: str, is_tome: bool) -> str | None:
-    command_question = command_argument(text, "/问")
-    if command_question is not None:
-        return command_question
-    if is_tome:
-        return text.strip()
-    return None
+    if not is_tome:
+        return None
+    command_question = command_argument(text, "问")
+    return text.strip() if command_question is None else command_question
 
 
 def parse_mute_duration(text: str) -> int | None:
-    argument = command_argument(text, "/禁言")
+    argument = command_argument(text, "禁言")
     if argument is None:
         return None
     if not argument:
@@ -84,3 +91,14 @@ def has_management_permission(sender_id: int, role: str | None, admin_ids: froze
     if admin_ids:
         return sender_id in admin_ids
     return role in {"admin", "owner"}
+
+
+def select_target_user_id(
+    mentioned_ids: Iterable[int],
+    self_id: int,
+    reply_sender_id: int | None,
+) -> int | None:
+    for user_id in mentioned_ids:
+        if user_id != self_id:
+            return user_id
+    return reply_sender_id

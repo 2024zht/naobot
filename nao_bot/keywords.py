@@ -19,29 +19,29 @@ class KeywordCommand:
 
 def parse_keyword_command(text: str) -> KeywordCommand | None:
     stripped = text.strip()
-    if stripped == "/关键词 列表":
+    if stripped == "关键词 列表":
         return KeywordCommand("list")
-    if stripped == "/关键词":
-        raise ValueError("用法：/关键词 添加 触发词=回复，或 /关键词 删除 触发词，或 /关键词 列表")
+    if stripped == "关键词":
+        raise ValueError("用法：@nao 关键词 添加 触发词=回复，或 @nao 关键词 删除 触发词，或 @nao 关键词 列表")
 
-    add_prefix = "/关键词 添加 "
+    add_prefix = "关键词 添加 "
     if stripped.startswith(add_prefix):
         content = stripped[len(add_prefix) :].replace("＝", "=", 1)
         if "=" not in content:
-            raise ValueError("添加格式：/关键词 添加 触发词=回复内容")
+            raise ValueError("添加格式：@nao 关键词 添加 触发词=回复内容")
         trigger, reply = (part.strip() for part in content.split("=", 1))
         _validate_keyword(trigger, reply)
         return KeywordCommand("add", trigger, reply)
 
-    delete_prefix = "/关键词 删除 "
+    delete_prefix = "关键词 删除 "
     if stripped.startswith(delete_prefix):
         trigger = stripped[len(delete_prefix) :].strip()
         if not trigger:
-            raise ValueError("删除格式：/关键词 删除 触发词")
+            raise ValueError("删除格式：@nao 关键词 删除 触发词")
         return KeywordCommand("delete", trigger)
 
-    if stripped.startswith("/关键词"):
-        raise ValueError("用法：/关键词 添加 触发词=回复，或 /关键词 删除 触发词，或 /关键词 列表")
+    if stripped.startswith("关键词"):
+        raise ValueError("用法：@nao 关键词 添加 触发词=回复，或 @nao 关键词 删除 触发词，或 @nao 关键词 列表")
     return None
 
 

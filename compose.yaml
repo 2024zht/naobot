@@ -32,7 +32,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: nao-bot:1.3.4
+    image: nao-bot:1.3.5
     container_name: nao-bot
     restart: unless-stopped
     init: true
@@ -41,6 +41,7 @@ services:
         condition: service_started
     environment:
       DRIVER: "~httpx+~websockets"
+      COMMAND_START: '[""]'
       LOG_LEVEL: "INFO"
       NAO_TEST_GROUP_ID: "${NAO_TEST_GROUP_ID:?Set NAO_TEST_GROUP_ID in .env}"
       NAO_ADMIN_QQ_IDS: "${NAO_ADMIN_QQ_IDS:-}"
@@ -53,7 +54,7 @@ services:
       XDG_CACHE_HOME: "/data/cache"
       XDG_CONFIG_HOME: "/data/config"
       MEME_HOME: "/data/meme_generator"
-      MEMES_COMMAND_PREFIXES: '["/"]'
+      MEMES_COMMAND_PREFIXES: '[""]'
       MEMES_USE_SENDER_WHEN_NO_IMAGE: "true"
       MEMES_USE_DEFAULT_WHEN_NO_TEXT: "true"
       MEMES_CHECK_RESOURCES_ON_STARTUP: "true"
