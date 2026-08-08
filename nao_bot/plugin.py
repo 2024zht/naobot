@@ -13,6 +13,7 @@ from nonebot.message import event_preprocessor
 from nonebot.rule import Rule
 
 from .deepseek import ask_deepseek, extract_fraud_keywords
+from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_person_turn
 from .image_scan import scan_image_url
 from .keywords import MAX_KEYWORDS, KeywordStore, parse_keyword_command
 from .moderation import (
@@ -59,6 +60,7 @@ violation_store = ViolationStore(Path(os.environ.get("NAO_MODERATION_FILE", "/da
 fraud_keyword_store = FraudKeywordStore(
     Path(os.environ.get("NAO_FRAUD_KEYWORDS_FILE", "/data/fraud_keywords.json"))
 )
+guess_person_sessions = GuessPersonSessions()
 
 
 def group_id_from_event(event: Event) -> int | None:
@@ -422,6 +424,81 @@ async def handle_management(bot: Bot, event: GroupMessageEvent) -> None:
     if duration == 0:
         await management_matcher.finish("已解除禁言。")
     await management_matcher.finish(f"已禁言 {duration // 60} 分钟。")
+
+
+def is_guess_person_start(event: GroupMessageEvent) -> bool:
+    return event.is_tome() and event.get_plaintext().strip() == "猜人物"
+
+
+guess_person_start_matcher = on_message(
+    rule=Rule(is_test_group) & Rule(is_guess_person_start),
+    priority=5,
+    block=True,
+)
+
+
+@guess_person_start_matcher.handle()
+async def handle_guess_person_start(event: GroupMessageEvent) -> None:
+    if not DEEPSEEK_API_KEY:
+        await guess_person_start_matcher.finish("猜人物功能尚未配置。")
+    question = guess_person_sessions.start(event.data.peer_id, event.data.sender_id)
+    await guess_person_start_matcher.finish(
+        f"请先在心里想好一个人物。第 1 问：{question}\n"
+        "直接回复：是 / 否 / 不知道 / 可能 / 可能不是；发送“退出”结束。"
+    )
+
+
+def has_active_guess_person_session(event: GroupMessageEvent) -> bool:
+    return guess_person_sessions.has_active(event.data.peer_id, event.data.sender_id)
+
+
+guess_person_answer_matcher = on_message(
+    rule=Rule(is_test_group) & Rule(has_active_guess_person_session),
+    priority=6,
+    block=True,
+)
+
+
+@guess_person_answer_matcher.handle()
+async def handle_guess_person_answer(event: GroupMessageEvent) -> None:
+    group_id = event.data.peer_id
+    user_id = event.data.sender_id
+    answer = event.get_plaintext().strip()
+    if answer in {"退出", "结束"}:
+        guess_person_sessions.end(group_id, user_id)
+        await guess_person_answer_matcher.finish("本局猜人物已结束。")
+    if answer not in VALID_ANSWERS:
+        await guess_person_answer_matcher.finish(
+            "请直接回复：是 / 否 / 不知道 / 可能 / 可能不是；发送“退出”结束。"
+        )
+
+    try:
+        prepared = guess_person_sessions.prepare_answer(group_id, user_id, answer)
+    except KeyError:
+        await guess_person_answer_matcher.finish("本局已超时，请重新发送 @nao 猜人物。")
+
+    try:
+        turn = await request_guess_person_turn(
+            DEEPSEEK_API_KEY,
+            DEEPSEEK_MODEL,
+            prepared.history,
+            prepared.force_guess,
+        )
+        question_number = guess_person_sessions.apply_turn(
+            group_id,
+            user_id,
+            prepared,
+            turn,
+        )
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
+        logger.exception("DeepSeek guess-person request failed")
+        await guess_person_answer_matcher.finish("我暂时没想好，请稍后重新发送刚才的答案。")
+
+    if turn.type == "guess":
+        await guess_person_answer_matcher.finish(
+            f"我猜是：{turn.text}。本局结束，再玩一次请发送 @nao 猜人物。"
+        )
+    await guess_person_answer_matcher.finish(f"第 {question_number} 问：{turn.text}")
 
 
 def is_ai_command(event: GroupMessageEvent) -> bool:

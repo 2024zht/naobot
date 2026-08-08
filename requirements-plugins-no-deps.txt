@@ -1,0 +1,4 @@
+# These plugins declare obsolete Pillow upper bounds but use APIs retained in Pillow 12.
+# Install without dependencies so untrusted group images keep receiving current Pillow fixes.
+nonebot_plugin_handle==0.4.4
+nonebot_plugin_remake==0.4.4

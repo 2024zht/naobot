@@ -11,10 +11,13 @@ RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sourc
     apt-get install -y --no-install-recommends libexpat1 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
+COPY requirements.txt requirements-plugins-no-deps.txt ./
 RUN uv pip install --system --no-cache \
     --default-index https://mirrors.aliyun.com/pypi/simple \
     -r requirements.txt && \
+    uv pip install --system --no-cache --no-deps \
+    --default-index https://mirrors.aliyun.com/pypi/simple \
+    -r requirements-plugins-no-deps.txt && \
     uv pip install --system --no-cache --no-deps \
     --default-index https://mirrors.aliyun.com/pypi/simple \
     rapidocr_onnxruntime==1.4.4

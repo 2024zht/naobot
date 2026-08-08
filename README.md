@@ -7,6 +7,8 @@
 - `@机器人 你的问题`：直接使用 DeepSeek AI 问答，并清理 QQ 无法渲染的 Markdown
 - `@机器人 关键词`：持久化关键词回复
 - `@机器人 表情包制作`、`😂+🥺`：表情模板与 EmojiMix
+- `@机器人 今日人品`、`@机器人 猜成语`、`@机器人 人生重开`：群内趣味功能
+- `@机器人 猜人物`：由 DeepSeek 通过最多 20 个问题猜测人物
 - 新成员欢迎
 - `@机器人 禁言`、`@机器人 踢出`、`@机器人 撤回`：管理员群管理
 - 文字规则、图片 OCR、二维码、QQ 名片和重要通知防护
@@ -68,6 +70,7 @@ docker compose down
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt -r requirements-dev.txt
+.\.venv\Scripts\python -m pip install --no-deps -r requirements-plugins-no-deps.txt
 .\.venv\Scripts\python -m pytest -q
 ```
 
