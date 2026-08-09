@@ -76,3 +76,15 @@ def test_fun_plugins_are_pinned_and_documented():
     assert "nonebot_plugin_remake==0.4.4" in no_deps
     assert "@nao 猜人物" in features
     assert "akinator" not in features.lower()
+
+
+def test_reminder_commands_and_storage_are_documented():
+    features = (ROOT / "FEATURES.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    for command in ("@nao 定时 ", "@nao 定时列表", "@nao 取消定时"):
+        assert command in HELP_TEXT
+        assert command in features
+        assert command in readme
+    assert "data/reminders.sqlite3" in features
+    assert "data/reminders.sqlite3" in readme

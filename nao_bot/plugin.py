@@ -1,10 +1,12 @@
+import asyncio
 import os
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from time import monotonic
 
 import httpx
-from nonebot import logger, on_message, on_notice
+from nonebot import get_bots, get_driver, logger, on_message, on_notice
 from nonebot.adapters import Event
 from nonebot.adapters.milky import Bot, Message, MessageSegment
 from nonebot.adapters.milky.event import GroupMemberIncreaseEvent, GroupMessageEvent
@@ -34,6 +36,12 @@ from .reactions import (
     ReactionCatalog,
     reaction_image_base64,
     select_reaction_asset,
+)
+from .reminders import (
+    CHINA_TIMEZONE,
+    ReminderStore,
+    format_reminder_time,
+    parse_reminder_command,
 )
 from .rules import (
     ai_question,
@@ -76,6 +84,8 @@ fraud_keyword_store = FraudKeywordStore(
     Path(os.environ.get("NAO_FRAUD_KEYWORDS_FILE", "/data/fraud_keywords.json"))
 )
 guess_person_sessions = GuessPersonSessions()
+reminder_store = ReminderStore(Path(os.environ.get("NAO_REMINDERS_FILE", "/data/reminders.sqlite3")))
+reminder_scheduler_task: asyncio.Task[None] | None = None
 
 try:
     reaction_catalog.sync()
@@ -128,6 +138,65 @@ async def can_manage(bot: Bot, event: GroupMessageEvent) -> bool:
         member = await bot.get_group_member_info(group_id=event.data.peer_id, user_id=event.data.sender_id)
         role = member.role
     return has_management_permission(event.data.sender_id, role, ADMIN_QQ_IDS)
+
+
+async def _send_due_reminders() -> None:
+    bot = next(
+        (connected_bot for connected_bot in get_bots().values() if isinstance(connected_bot, Bot)),
+        None,
+    )
+    if bot is None:
+        return
+    for reminder in reminder_store.due(datetime.now(CHINA_TIMEZONE)):
+        try:
+            await bot.send_group_message(
+                group_id=reminder.group_id,
+                message=[
+                    MessageSegment.mention(reminder.creator_id),
+                    MessageSegment.text(f" 定时提醒（任务 #{reminder.id}）：\n{reminder.content}"),
+                ],
+            )
+        except Exception:
+            logger.exception(f"Scheduled reminder delivery failed for task {reminder.id}")
+            continue
+        reminder_store.complete(reminder.id)
+
+
+async def _reminder_scheduler_loop() -> None:
+    while True:
+        try:
+            await _send_due_reminders()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Scheduled reminder poll failed")
+        await asyncio.sleep(15)
+
+
+driver = get_driver()
+
+
+@driver.on_startup
+async def start_reminder_scheduler() -> None:
+    global reminder_scheduler_task
+    if reminder_scheduler_task is None or reminder_scheduler_task.done():
+        reminder_scheduler_task = asyncio.create_task(
+            _reminder_scheduler_loop(),
+            name="nao-reminder-scheduler",
+        )
+
+
+@driver.on_shutdown
+async def stop_reminder_scheduler() -> None:
+    global reminder_scheduler_task
+    if reminder_scheduler_task is None:
+        return
+    reminder_scheduler_task.cancel()
+    try:
+        await reminder_scheduler_task
+    except asyncio.CancelledError:
+        pass
+    reminder_scheduler_task = None
 
 
 def is_moderation_command(event: GroupMessageEvent) -> bool:
@@ -390,6 +459,71 @@ async def handle_keyword_management(bot: Bot, event: GroupMessageEvent) -> None:
         await keyword_management_matcher.finish(str(error))
     action = "添加" if created else "更新"
     await keyword_management_matcher.finish(f"已{action}关键词：{command.trigger}")
+
+
+def is_reminder_command(event: GroupMessageEvent) -> bool:
+    text = event.get_plaintext().strip()
+    return event.is_tome() and (
+        text == "定时列表"
+        or command_argument(text, "定时") is not None
+        or command_argument(text, "取消定时") is not None
+    )
+
+
+reminder_matcher = on_message(
+    rule=Rule(is_test_group) & Rule(is_reminder_command),
+    priority=4,
+    block=True,
+)
+
+
+@reminder_matcher.handle()
+async def handle_reminder_command(bot: Bot, event: GroupMessageEvent) -> None:
+    if not await can_manage(bot, event):
+        await reminder_matcher.finish("你没有管理定时提醒的权限。")
+
+    try:
+        command = parse_reminder_command(event.get_plaintext())
+    except ValueError as error:
+        await reminder_matcher.finish(str(error))
+    if command is None:
+        return
+
+    group_id = event.data.peer_id
+    if command.action == "list":
+        reminders = reminder_store.list_pending(group_id)
+        if not reminders:
+            await reminder_matcher.finish("当前没有待发送的定时提醒。")
+        visible = reminders[:20]
+        lines = []
+        for reminder in visible:
+            content = " ".join(reminder.content.split())
+            if len(content) > 60:
+                content = f"{content[:57]}..."
+            lines.append(f"#{reminder.id} {format_reminder_time(reminder.remind_at)} {content}")
+        if len(reminders) > len(visible):
+            lines.append(f"还有 {len(reminders) - len(visible)} 条未显示。")
+        await reminder_matcher.finish("待发送的定时提醒：\n" + "\n".join(lines))
+
+    if command.action == "cancel":
+        cancelled = reminder_store.cancel(group_id, command.reminder_id)
+        message = "已取消该定时提醒。" if cancelled else "没有找到这个群的定时提醒。"
+        await reminder_matcher.finish(message)
+
+    try:
+        reminder = reminder_store.add(
+            group_id,
+            event.data.sender_id,
+            command.remind_at,
+            command.content,
+        )
+    except ValueError as error:
+        await reminder_matcher.finish(str(error))
+    await reminder_matcher.finish(
+        f"已设置定时提醒 #{reminder.id}\n"
+        f"时间：{format_reminder_time(reminder.remind_at)}\n"
+        f"内容：{reminder.content}"
+    )
 
 
 management_matcher = on_message(
