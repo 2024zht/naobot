@@ -5,7 +5,7 @@ from time import monotonic
 import httpx
 from nonebot import logger, on_message, on_notice
 from nonebot.adapters import Event
-from nonebot.adapters.milky import Bot, MessageSegment
+from nonebot.adapters.milky import Bot, Message, MessageSegment
 from nonebot.adapters.milky.event import GroupMemberIncreaseEvent, GroupMessageEvent
 from nonebot.exception import IgnoredException
 from nonebot.matcher import Matcher
@@ -28,6 +28,7 @@ from .moderation import (
     kick_member_with_confirmation,
     text_from_segments,
 )
+from .reactions import select_reaction_asset
 from .rules import (
     ai_question,
     command_argument,
@@ -55,6 +56,8 @@ except ValueError as error:
 
 AI_COOLDOWN_SECONDS = 10
 last_ai_requests: dict[int, float] = {}
+REACTION_ASSET_DIR = Path(__file__).parent / "assets" / "reactions"
+last_reactions: dict[int, float] = {}
 keyword_store = KeywordStore(Path(os.environ.get("NAO_KEYWORDS_FILE", "/data/keywords.json")))
 violation_store = ViolationStore(Path(os.environ.get("NAO_MODERATION_FILE", "/data/moderation.json")))
 fraud_keyword_store = FraudKeywordStore(
@@ -527,7 +530,23 @@ async def handle_ai(event: GroupMessageEvent) -> None:
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         logger.exception("DeepSeek request failed")
         await ai_matcher.finish("AI 暂时不可用，请稍后再试。")
-    await ai_matcher.finish(answer)
+    reaction_asset = select_reaction_asset(
+        answer,
+        event.data.sender_id,
+        last_reactions,
+        REACTION_ASSET_DIR,
+        now=monotonic(),
+    )
+    if reaction_asset is None:
+        await ai_matcher.finish(answer)
+    await ai_matcher.finish(
+        Message(
+            [
+                MessageSegment.text(answer),
+                MessageSegment.image(path=str(reaction_asset), sub_type="sticker"),
+            ]
+        )
+    )
 
 
 def is_static_message(event: GroupMessageEvent) -> bool:

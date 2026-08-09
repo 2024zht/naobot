@@ -46,6 +46,16 @@ def test_ai_documentation_uses_natural_mention_syntax():
     assert "@nao 问 问题" not in HELP_TEXT
 
 
+def test_ai_reaction_pack_is_complete_and_documented():
+    features = (ROOT / "FEATURES.md").read_text(encoding="utf-8")
+    reaction_dir = ROOT / "nao_bot" / "assets" / "reactions"
+
+    assert "90 秒冷却" in features
+    assert "只用于 AI 成功回答" in features
+    for name in ("hello", "happy", "laugh", "thinking", "cheer", "celebrate", "sorry", "surprise"):
+        assert (reaction_dir / f"{name}.png").is_file()
+
+
 def test_fun_plugins_are_pinned_and_documented():
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     no_deps = (ROOT / "requirements-plugins-no-deps.txt").read_text(encoding="utf-8")
