@@ -1,4 +1,5 @@
 import os
+from collections import deque
 from pathlib import Path
 from time import monotonic
 
@@ -30,8 +31,8 @@ from .moderation import (
     text_from_segments,
 )
 from .reactions import (
+    ReactionCatalog,
     reaction_image_base64,
-    select_random_reaction_asset,
     select_reaction_asset,
 )
 from .rules import (
@@ -60,16 +61,26 @@ except ValueError as error:
     raise RuntimeError("NAO_ADMIN_QQ_IDS must be comma-separated QQ numbers") from error
 
 AI_COOLDOWN_SECONDS = 10
-MONTHLY_SALARY_CAT_CHANCE = 0.2
+REACTION_HISTORY_SIZE = 3
 last_ai_requests: dict[int, float] = {}
 REACTION_ASSET_DIR = Path(__file__).parent / "assets" / "reactions"
-MONTHLY_SALARY_CAT_DIR = Path("/data/reaction_packs/monthly_salary_cat")
+REACTION_PACK_ROOT = Path(os.environ.get("NAO_REACTION_PACK_ROOT", "/data/reaction_packs"))
+reaction_catalog = ReactionCatalog(
+    Path(os.environ.get("NAO_REACTION_CATALOG_FILE", "/data/reaction_catalog.json")),
+    REACTION_PACK_ROOT,
+)
+recent_reactions: dict[int, deque[Path]] = {}
 keyword_store = KeywordStore(Path(os.environ.get("NAO_KEYWORDS_FILE", "/data/keywords.json")))
 violation_store = ViolationStore(Path(os.environ.get("NAO_MODERATION_FILE", "/data/moderation.json")))
 fraud_keyword_store = FraudKeywordStore(
     Path(os.environ.get("NAO_FRAUD_KEYWORDS_FILE", "/data/fraud_keywords.json"))
 )
 guess_person_sessions = GuessPersonSessions()
+
+try:
+    reaction_catalog.sync()
+except (OSError, ValueError):
+    logger.exception("Reaction catalog synchronization failed")
 
 
 def group_id_from_event(event: Event) -> int | None:
@@ -536,22 +547,29 @@ async def handle_ai(event: GroupMessageEvent) -> None:
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         logger.exception("DeepSeek request failed")
         await ai_matcher.finish("AI 暂时不可用，请稍后再试。")
+    catalog_assets: tuple[Path, ...] = ()
+    if answer.reaction_scene:
+        try:
+            reaction_catalog.sync()
+            catalog_assets = reaction_catalog.assets_for_scene(answer.reaction_scene)
+        except (OSError, ValueError):
+            logger.exception("Reaction catalog loading failed")
+    history = recent_reactions.get(event.data.sender_id, ())
     reaction_asset = select_reaction_asset(
-        answer,
+        answer.reaction_scene,
+        answer.reaction_context,
+        answer.reaction_confidence,
         REACTION_ASSET_DIR,
+        catalog_assets,
+        recent_assets=history,
     )
     if reaction_asset is None:
-        reaction_asset = select_random_reaction_asset(
-            MONTHLY_SALARY_CAT_DIR,
-            chance=MONTHLY_SALARY_CAT_CHANCE,
-        )
-    if reaction_asset is None:
-        await ai_matcher.finish(answer)
+        await ai_matcher.finish(answer.text)
     try:
         await ai_matcher.send(
             Message(
                 [
-                    MessageSegment.text(answer),
+                    MessageSegment.text(answer.text),
                     MessageSegment.image(
                         base64=reaction_image_base64(reaction_asset),
                         sub_type="sticker",
@@ -561,7 +579,12 @@ async def handle_ai(event: GroupMessageEvent) -> None:
         )
     except (OSError, NetworkError):
         logger.exception("Reaction sticker send failed; falling back to text")
-        await ai_matcher.finish(answer)
+        await ai_matcher.finish(answer.text)
+    history = recent_reactions.setdefault(
+        event.data.sender_id,
+        deque(maxlen=REACTION_HISTORY_SIZE),
+    )
+    history.append(reaction_asset)
     await ai_matcher.finish()
 
 

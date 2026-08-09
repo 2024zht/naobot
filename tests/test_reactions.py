@@ -1,51 +1,147 @@
+import json
 from pathlib import Path
 
 import pytest
 
 from nao_bot.reactions import (
+    ReactionCatalog,
     list_reaction_pack_assets,
     reaction_image_base64,
-    reaction_name_for_text,
-    select_random_reaction_asset,
+    reaction_probability,
     select_reaction_asset,
 )
 
 
 @pytest.mark.parametrize(
-    ("text", "expected"),
+    ("scene", "context", "confidence", "expected"),
     [
-        ("你好，很高兴见到你。", "hello"),
-        ("这次做得真不错，我也很开心。", "happy"),
-        ("哈哈，这个说法确实很好笑。", "laugh"),
-        ("让我想想，这件事需要仔细分析。", "thinking"),
-        ("加油，坚持下去，你一定可以。", "cheer"),
-        ("恭喜你顺利完成，太棒了！", "celebrate"),
-        ("抱歉，这次是我理解错了。", "sorry"),
-        ("哇，没想到结果居然是这样！", "surprise"),
+        (None, "playful", 1.0, 0.0),
+        ("开心", "playful", 0.5, 0.0),
+        ("开心", "serious", 1.0, 0.1),
+        ("开心", "casual", 1.0, 0.45),
+        ("开心", "playful", 0.8, 0.72),
     ],
 )
-def test_reaction_name_requires_a_strong_tone(text: str, expected: str):
-    assert reaction_name_for_text(text) == expected
+def test_reaction_probability_uses_context_and_confidence(
+    scene: str | None,
+    context: str,
+    confidence: float,
+    expected: float,
+):
+    assert reaction_probability(scene, context, confidence) == pytest.approx(expected)
 
 
-def test_reaction_name_ignores_neutral_answers():
-    assert reaction_name_for_text("可以先检查配置文件，然后重新启动服务。") is None
+def test_catalog_sync_adds_new_assets_without_overwriting_labels(tmp_path: Path):
+    asset_root = tmp_path / "packs"
+    pack = asset_root / "monthly_salary_cat"
+    pack.mkdir(parents=True)
+    first = pack / "01.webp"
+    first.touch()
+    catalog_file = tmp_path / "reaction_catalog.json"
+    catalog = ReactionCatalog(catalog_file, asset_root)
+
+    assert catalog.sync() == 1
+    data = json.loads(catalog_file.read_text(encoding="utf-8"))
+    data["stickers"][0]["scenes"] = ["加班", "无语"]
+    catalog_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    second = pack / "02.webp"
+    second.touch()
+    assert catalog.sync() == 1
+
+    data = json.loads(catalog_file.read_text(encoding="utf-8"))
+    assert data["stickers"] == [
+        {
+            "file": "monthly_salary_cat/01.webp",
+            "scenes": ["加班", "无语"],
+            "enabled": True,
+        },
+        {
+            "file": "monthly_salary_cat/02.webp",
+            "scenes": [],
+            "enabled": True,
+        },
+    ]
 
 
-def test_reaction_asset_can_be_selected_for_consecutive_replies(tmp_path: Path):
-    asset = tmp_path / "celebrate.png"
-    asset.touch()
+def test_catalog_returns_only_enabled_assets_matching_the_scene(tmp_path: Path):
+    asset_root = tmp_path / "packs"
+    pack = asset_root / "monthly_salary_cat"
+    pack.mkdir(parents=True)
+    matching = pack / "01.webp"
+    disabled = pack / "02.webp"
+    unlabeled = pack / "03.webp"
+    for asset in (matching, disabled, unlabeled):
+        asset.touch()
+    catalog_file = tmp_path / "reaction_catalog.json"
+    catalog_file.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "stickers": [
+                    {"file": "monthly_salary_cat/01.webp", "scenes": ["无语"], "enabled": True},
+                    {"file": "monthly_salary_cat/02.webp", "scenes": ["无语"], "enabled": False},
+                    {"file": "monthly_salary_cat/03.webp", "scenes": [], "enabled": True},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    catalog = ReactionCatalog(catalog_file, asset_root)
 
-    assert select_reaction_asset("恭喜你成功了！", tmp_path) == asset
-    assert select_reaction_asset("恭喜你成功了！", tmp_path) == asset
+    assert catalog.assets_for_scene("无语") == (matching,)
 
 
-def test_missing_asset_falls_back_to_text(tmp_path: Path):
-    assert select_reaction_asset("抱歉，我理解错了。", tmp_path) is None
+def test_catalog_rejects_assets_outside_the_pack_root(tmp_path: Path):
+    asset_root = tmp_path / "packs"
+    asset_root.mkdir()
+    outside = tmp_path / "outside.webp"
+    outside.touch()
+    catalog_file = tmp_path / "reaction_catalog.json"
+    catalog_file.write_text(
+        '{"version":1,"stickers":[{"file":"../outside.webp",'
+        '"scenes":["无语"],"enabled":true}]}',
+        encoding="utf-8",
+    )
 
-    asset = tmp_path / "sorry.png"
-    asset.touch()
-    assert select_reaction_asset("抱歉，我理解错了。", tmp_path) == asset
+    with pytest.raises(ValueError, match="outside reaction pack root"):
+        ReactionCatalog(catalog_file, asset_root).assets_for_scene("无语")
+
+
+def test_contextual_selection_uses_matching_assets_and_avoids_recent_one(
+    tmp_path: Path,
+    monkeypatch,
+):
+    builtin_dir = tmp_path / "builtin"
+    builtin_dir.mkdir()
+    builtin = builtin_dir / "happy.png"
+    builtin.touch()
+    catalog_asset = tmp_path / "monthly.webp"
+    catalog_asset.touch()
+    monkeypatch.setattr("nao_bot.reactions.random.random", lambda: 0.0)
+
+    assert (
+        select_reaction_asset(
+            "开心",
+            "playful",
+            1.0,
+            builtin_dir,
+            (catalog_asset,),
+            recent_assets=(builtin,),
+        )
+        == catalog_asset
+    )
+
+
+def test_contextual_selection_does_not_use_unmatched_or_low_confidence_assets(
+    tmp_path: Path,
+):
+    candidate = tmp_path / "monthly.webp"
+    candidate.touch()
+
+    assert select_reaction_asset(None, "playful", 1.0, tmp_path, (candidate,)) is None
+    assert select_reaction_asset("开心", "playful", 0.5, tmp_path, (candidate,)) is None
 
 
 def test_reaction_asset_can_be_embedded_as_base64(tmp_path: Path):
@@ -67,22 +163,3 @@ def test_reaction_pack_lists_supported_images_in_order(tmp_path: Path):
         "02.webp",
         "03.png",
     ]
-
-
-def test_random_reaction_asset_can_trigger_for_consecutive_replies(tmp_path: Path, monkeypatch):
-    asset = tmp_path / "01.webp"
-    asset.touch()
-    monkeypatch.setattr("nao_bot.reactions.random.random", lambda: 0.19)
-
-    assert select_random_reaction_asset(tmp_path, chance=0.2) == asset
-    assert select_random_reaction_asset(tmp_path, chance=0.2) == asset
-
-
-def test_random_reaction_asset_skips_roll_at_or_above_chance(tmp_path: Path, monkeypatch):
-    (tmp_path / "01.webp").touch()
-    monkeypatch.setattr("nao_bot.reactions.random.random", lambda: 0.2)
-
-    assert (
-        select_random_reaction_asset(tmp_path, chance=0.2)
-        is None
-    )

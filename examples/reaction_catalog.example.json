@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "stickers": [
+    {
+      "file": "monthly_salary_cat/01-example.webp",
+      "scenes": [
+        "加班",
+        "无语"
+      ],
+      "enabled": true
+    }
+  ]
+}

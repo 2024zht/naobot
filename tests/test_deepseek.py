@@ -1,7 +1,14 @@
 import asyncio
 
 import nao_bot.deepseek as deepseek
-from nao_bot.deepseek import extract_fraud_keywords, markdown_to_plain_text, parse_fraud_keyword_response
+from nao_bot.deepseek import (
+    AIAnswer,
+    ask_deepseek,
+    extract_fraud_keywords,
+    markdown_to_plain_text,
+    parse_ai_response,
+    parse_fraud_keyword_response,
+)
 
 
 def test_markdown_to_plain_text():
@@ -43,6 +50,35 @@ def test_plain_text_is_preserved():
     assert markdown_to_plain_text(text) == text
 
 
+def test_parse_ai_response_returns_plain_text_and_reaction_metadata():
+    answer = parse_ai_response(
+        '{"reply":"**恭喜你**，这次完成得很好！",'
+        '"reaction":{"scene":"庆祝","context":"playful","confidence":0.92}}'
+    )
+
+    assert answer == AIAnswer(
+        text="恭喜你，这次完成得很好！",
+        reaction_scene="庆祝",
+        reaction_context="playful",
+        reaction_confidence=0.92,
+    )
+
+
+def test_parse_ai_response_falls_back_to_text_without_a_reaction():
+    answer = parse_ai_response("普通纯文本回答")
+
+    assert answer == AIAnswer(text="普通纯文本回答")
+
+
+def test_parse_ai_response_accepts_json_with_no_matching_scene():
+    answer = parse_ai_response(
+        '{"reply":"这是一个严肃的技术说明。",'
+        '"reaction":{"scene":null,"context":"serious","confidence":0}}'
+    )
+
+    assert answer == AIAnswer(text="这是一个严肃的技术说明。")
+
+
 def test_parse_fraud_keyword_response_accepts_json_and_code_fences():
     assert parse_fraud_keyword_response('["论文代写", "包通过"]') == ["论文代写", "包通过"]
     assert parse_fraud_keyword_response('```json\n["刷单", "先垫付"]\n```') == ["刷单", "先垫付"]
@@ -77,3 +113,46 @@ def test_extract_fraud_keywords_uses_deterministic_json_request(monkeypatch):
     assert requests[0][2]["temperature"] == 0
     assert requests[0][2]["max_tokens"] == 1200
     assert requests[0][2]["response_format"] == {"type": "json_object"}
+
+
+def test_ask_deepseek_requests_reply_and_reaction_in_one_json_response(monkeypatch):
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"reply":"这也太好笑了！",'
+                                '"reaction":{"scene":"好笑","context":"playful",'
+                                '"confidence":0.88}}'
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            requests.append((url, headers, json))
+            return Response()
+
+    monkeypatch.setattr(deepseek.httpx, "AsyncClient", lambda **kwargs: Client())
+
+    answer = asyncio.run(ask_deepseek("key", "model", "讲个笑话"))
+
+    assert answer.reaction_scene == "好笑"
+    assert answer.reaction_context == "playful"
+    assert requests[0][2]["response_format"] == {"type": "json_object"}
+    assert "reaction" in requests[0][2]["messages"][0]["content"]

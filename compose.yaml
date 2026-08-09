@@ -49,6 +49,8 @@ services:
       NAO_KEYWORDS_FILE: "/data/keywords.json"
       NAO_MODERATION_FILE: "/data/moderation.json"
       NAO_FRAUD_KEYWORDS_FILE: "/data/fraud_keywords.json"
+      NAO_REACTION_PACK_ROOT: "${NAO_REACTION_PACK_ROOT:-/data/reaction_packs}"
+      NAO_REACTION_CATALOG_FILE: "${NAO_REACTION_CATALOG_FILE:-/data/reaction_catalog.json}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?Set DEEPSEEK_API_KEY in .env}"
       DEEPSEEK_MODEL: "${DEEPSEEK_MODEL:-deepseek-v4-flash}"
       XDG_DATA_HOME: "/data/local/share"

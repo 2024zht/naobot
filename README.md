@@ -4,7 +4,7 @@
 
 ## 功能
 
-- `@机器人 你的问题`：直接使用 DeepSeek AI 问答，清理 QQ 无法渲染的 Markdown，并按明显语气选择性附带 NAO 表情贴纸，其他回答也有小概率随机附带月薪喵
+- `@机器人 你的问题`：DeepSeek 在一次请求中生成纯文字回答和隐藏的场景判断，机器人只从同场景的已标注素材中选择表情
 - `@机器人 关键词`：持久化关键词回复
 - `@机器人 表情包制作`、`😂+🥺`：表情模板与 EmojiMix
 - `@机器人 今日人品`、`@机器人 猜成语`、`@机器人 人生重开`：群内趣味功能
@@ -41,6 +41,8 @@
 4. 首次启动按 Lagrange 日志提示登录 QQ。登录状态保存在 `lagrange-data/`，机器人数据保存在 `data/`。
 
 5. 将机器人设为目标群管理员。`NAO_ADMIN_QQ_IDS` 留空时，群主和群管理员可以使用管理命令；填写后仅允许列出的 QQ 号，多个号码用英文逗号分隔。
+
+机器人会自动生成 `data/reaction_catalog.json`。参考 [reaction_catalog.example.json](examples/reaction_catalog.example.json) 为素材填写 `scenes`；保存后下一次 AI 回复即会读取新标签，不需要重建镜像。
 
 停止服务：
 
