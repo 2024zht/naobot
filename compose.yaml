@@ -11,8 +11,9 @@ services:
     environment:
       Lagrange__Login__Uin: "${QQ_UIN:?Set QQ_UIN in .env}"
       Lagrange__Login__AutoReLogin: "true"
+      Lagrange__Protocol__Signer__Token: "${LAGRANGE_SIGNER_TOKEN:?Set LAGRANGE_SIGNER_TOKEN in .env}"
       Milky__AccessToken: "${MILKY_ACCESS_TOKEN:?Set MILKY_ACCESS_TOKEN in .env}"
-      Milky__HttpServer__Host: "0.0.0.0"
+      Milky__HttpServer__Host: "*"
       Milky__HttpServer__Port: "3000"
       Milky__Api__Http__Enabled: "true"
       Milky__Event__WebSocket__Enabled: "true"

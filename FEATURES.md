@@ -157,6 +157,8 @@
 
 这些目录和真实 `.env` 均不会提交到 Git。
 
+部署时必须分别配置 `LAGRANGE_SIGNER_TOKEN` 和 `MILKY_ACCESS_TOKEN`。前者用于 QQ 协议签名，后者只用于 Lagrange.Milky 与 NoneBot 之间的通信，不能混用。
+
 ## 当前限制
 
 - 当前只支持一个配置群，不是多群独立配置系统。

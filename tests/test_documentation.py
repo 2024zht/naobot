@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 from nao_bot.rules import HELP_TEXT
 
 
@@ -9,6 +11,18 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_readme_links_feature_catalog():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "[FEATURES.md](FEATURES.md)" in readme
+
+
+def test_lagrange_deployment_has_required_login_configuration():
+    compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
+    example_env = (ROOT / ".env.example").read_text(encoding="utf-8")
+    environment = compose["services"]["lagrange-milky"]["environment"]
+
+    assert environment["Lagrange__Protocol__Signer__Token"].startswith(
+        "${LAGRANGE_SIGNER_TOKEN:"
+    )
+    assert environment["Milky__HttpServer__Host"] == "*"
+    assert "LAGRANGE_SIGNER_TOKEN=" in example_env
 
 
 def test_feature_catalog_covers_help_commands():

@@ -25,7 +25,7 @@
    Copy-Item .env.example .env
    ```
 
-2. 编辑 `.env`，至少填写 QQ 号、测试群号、Milky Token 和 DeepSeek API Key。生成随机 Milky Token：
+2. 编辑 `.env`，至少填写 QQ 号、测试群号、Lagrange 签名 Token、Milky Token 和 DeepSeek API Key。签名 Token 与 Milky Token 用途不同；生成随机 Milky Token：
 
    ```powershell
    python -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -76,4 +76,4 @@ python -m venv .venv
 
 ## 安全
 
-`.env`、QQ 登录状态、持久化数据和缓存均已加入 `.gitignore`。不要把真实 API Key、Milky Token、服务器密码或 `lagrange-data/` 提交到仓库。
+`.env`、QQ 登录状态、持久化数据和缓存均已加入 `.gitignore`。不要把真实 API Key、Lagrange 签名 Token、Milky Token、服务器密码或 `lagrange-data/` 提交到仓库。
