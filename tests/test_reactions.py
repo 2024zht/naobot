@@ -6,7 +6,6 @@ from nao_bot.reactions import (
     list_reaction_pack_assets,
     reaction_image_base64,
     reaction_name_for_text,
-    record_reaction_sent,
     select_random_reaction_asset,
     select_reaction_asset,
 )
@@ -33,37 +32,20 @@ def test_reaction_name_ignores_neutral_answers():
     assert reaction_name_for_text("可以先检查配置文件，然后重新启动服务。") is None
 
 
-def test_reaction_asset_has_a_per_user_cooldown(tmp_path: Path):
+def test_reaction_asset_can_be_selected_for_consecutive_replies(tmp_path: Path):
     asset = tmp_path / "celebrate.png"
     asset.touch()
-    last_sent: dict[int, float] = {}
 
-    assert select_reaction_asset("恭喜你成功了！", 1001, last_sent, tmp_path, now=100) == asset
-    record_reaction_sent(last_sent, 1001, now=100)
-    assert select_reaction_asset("恭喜你成功了！", 1001, last_sent, tmp_path, now=189) is None
-    assert select_reaction_asset("恭喜你成功了！", 1002, last_sent, tmp_path, now=101) == asset
-    record_reaction_sent(last_sent, 1002, now=101)
-    assert select_reaction_asset("恭喜你成功了！", 1001, last_sent, tmp_path, now=190) == asset
+    assert select_reaction_asset("恭喜你成功了！", tmp_path) == asset
+    assert select_reaction_asset("恭喜你成功了！", tmp_path) == asset
 
 
-def test_missing_asset_falls_back_without_consuming_cooldown(tmp_path: Path):
-    last_sent: dict[int, float] = {}
-
-    assert select_reaction_asset("抱歉，我理解错了。", 1001, last_sent, tmp_path, now=100) is None
-    assert last_sent == {}
+def test_missing_asset_falls_back_to_text(tmp_path: Path):
+    assert select_reaction_asset("抱歉，我理解错了。", tmp_path) is None
 
     asset = tmp_path / "sorry.png"
     asset.touch()
-    assert select_reaction_asset("抱歉，我理解错了。", 1001, last_sent, tmp_path, now=100) == asset
-
-
-def test_selection_does_not_consume_cooldown_before_send(tmp_path: Path):
-    asset = tmp_path / "happy.png"
-    asset.touch()
-    last_sent: dict[int, float] = {}
-
-    assert select_reaction_asset("这真不错！", 1001, last_sent, tmp_path, now=100) == asset
-    assert last_sent == {}
+    assert select_reaction_asset("抱歉，我理解错了。", tmp_path) == asset
 
 
 def test_reaction_asset_can_be_embedded_as_base64(tmp_path: Path):
@@ -87,35 +69,13 @@ def test_reaction_pack_lists_supported_images_in_order(tmp_path: Path):
     ]
 
 
-def test_random_reaction_asset_respects_chance_and_cooldown(tmp_path: Path, monkeypatch):
+def test_random_reaction_asset_can_trigger_for_consecutive_replies(tmp_path: Path, monkeypatch):
     asset = tmp_path / "01.webp"
     asset.touch()
-    last_sent: dict[int, float] = {}
     monkeypatch.setattr("nao_bot.reactions.random.random", lambda: 0.19)
 
-    assert (
-        select_random_reaction_asset(
-            1001,
-            last_sent,
-            tmp_path,
-            now=100,
-            chance=0.2,
-        )
-        == asset
-    )
-    assert last_sent == {}
-
-    record_reaction_sent(last_sent, 1001, now=100)
-    assert (
-        select_random_reaction_asset(
-            1001,
-            last_sent,
-            tmp_path,
-            now=189,
-            chance=0.2,
-        )
-        is None
-    )
+    assert select_random_reaction_asset(tmp_path, chance=0.2) == asset
+    assert select_random_reaction_asset(tmp_path, chance=0.2) == asset
 
 
 def test_random_reaction_asset_skips_roll_at_or_above_chance(tmp_path: Path, monkeypatch):
@@ -123,12 +83,6 @@ def test_random_reaction_asset_skips_roll_at_or_above_chance(tmp_path: Path, mon
     monkeypatch.setattr("nao_bot.reactions.random.random", lambda: 0.2)
 
     assert (
-        select_random_reaction_asset(
-            1001,
-            {},
-            tmp_path,
-            now=100,
-            chance=0.2,
-        )
+        select_random_reaction_asset(tmp_path, chance=0.2)
         is None
     )

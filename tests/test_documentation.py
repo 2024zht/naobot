@@ -50,7 +50,7 @@ def test_ai_reaction_pack_is_complete_and_documented():
     features = (ROOT / "FEATURES.md").read_text(encoding="utf-8")
     reaction_dir = ROOT / "nao_bot" / "assets" / "reactions"
 
-    assert "90 秒冷却" in features
+    assert "表情冷却" not in features
     assert "20% 概率" in features
     assert "data/reaction_packs/monthly_salary_cat/" in features
     assert "只用于 AI 成功回答" in features

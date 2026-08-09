@@ -31,7 +31,6 @@ from .moderation import (
 )
 from .reactions import (
     reaction_image_base64,
-    record_reaction_sent,
     select_random_reaction_asset,
     select_reaction_asset,
 )
@@ -65,7 +64,6 @@ MONTHLY_SALARY_CAT_CHANCE = 0.2
 last_ai_requests: dict[int, float] = {}
 REACTION_ASSET_DIR = Path(__file__).parent / "assets" / "reactions"
 MONTHLY_SALARY_CAT_DIR = Path("/data/reaction_packs/monthly_salary_cat")
-last_reactions: dict[int, float] = {}
 keyword_store = KeywordStore(Path(os.environ.get("NAO_KEYWORDS_FILE", "/data/keywords.json")))
 violation_store = ViolationStore(Path(os.environ.get("NAO_MODERATION_FILE", "/data/moderation.json")))
 fraud_keyword_store = FraudKeywordStore(
@@ -538,20 +536,13 @@ async def handle_ai(event: GroupMessageEvent) -> None:
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         logger.exception("DeepSeek request failed")
         await ai_matcher.finish("AI 暂时不可用，请稍后再试。")
-    reaction_now = monotonic()
     reaction_asset = select_reaction_asset(
         answer,
-        event.data.sender_id,
-        last_reactions,
         REACTION_ASSET_DIR,
-        now=reaction_now,
     )
     if reaction_asset is None:
         reaction_asset = select_random_reaction_asset(
-            event.data.sender_id,
-            last_reactions,
             MONTHLY_SALARY_CAT_DIR,
-            now=reaction_now,
             chance=MONTHLY_SALARY_CAT_CHANCE,
         )
     if reaction_asset is None:
@@ -571,7 +562,6 @@ async def handle_ai(event: GroupMessageEvent) -> None:
     except (OSError, NetworkError):
         logger.exception("Reaction sticker send failed; falling back to text")
         await ai_matcher.finish(answer)
-    record_reaction_sent(last_reactions, event.data.sender_id, now=reaction_now)
     await ai_matcher.finish()
 
 

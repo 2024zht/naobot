@@ -3,7 +3,6 @@ import random
 from pathlib import Path
 
 
-REACTION_COOLDOWN_SECONDS = 90
 REACTION_PACK_EXTENSIONS = frozenset({".gif", ".png", ".webp"})
 REACTION_PHRASES = (
     ("surprise", ("没想到", "居然", "竟然", "太意外", "真意外", "哇")),
@@ -27,19 +26,10 @@ def reaction_name_for_text(text: str) -> str | None:
 
 def select_reaction_asset(
     text: str,
-    user_id: int,
-    last_sent: dict[int, float],
     asset_dir: Path,
-    *,
-    now: float,
-    cooldown_seconds: int = REACTION_COOLDOWN_SECONDS,
 ) -> Path | None:
     name = reaction_name_for_text(text)
     if name is None:
-        return None
-
-    previous = last_sent.get(user_id)
-    if previous is not None and now - previous < cooldown_seconds:
         return None
 
     asset = asset_dir / f"{name}.png"
@@ -47,10 +37,6 @@ def select_reaction_asset(
         return None
 
     return asset
-
-
-def record_reaction_sent(last_sent: dict[int, float], user_id: int, *, now: float) -> None:
-    last_sent[user_id] = now
 
 
 def reaction_image_base64(asset: Path) -> str:
@@ -68,17 +54,10 @@ def list_reaction_pack_assets(asset_dir: Path) -> tuple[Path, ...]:
 
 
 def select_random_reaction_asset(
-    user_id: int,
-    last_sent: dict[int, float],
     asset_dir: Path,
     *,
-    now: float,
     chance: float,
-    cooldown_seconds: int = REACTION_COOLDOWN_SECONDS,
 ) -> Path | None:
-    previous = last_sent.get(user_id)
-    if previous is not None and now - previous < cooldown_seconds:
-        return None
     if random.random() >= chance:
         return None
 
