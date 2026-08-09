@@ -51,7 +51,10 @@ def test_ai_reaction_pack_is_complete_and_documented():
     reaction_dir = ROOT / "nao_bot" / "assets" / "reactions"
 
     assert "90 秒冷却" in features
+    assert "20% 概率" in features
+    assert "data/reaction_packs/monthly_salary_cat/" in features
     assert "只用于 AI 成功回答" in features
+    assert "@nao 月薪喵" not in HELP_TEXT
     for name in ("hello", "happy", "laugh", "thinking", "cheer", "celebrate", "sorry", "surprise"):
         assert (reaction_dir / f"{name}.png").is_file()
 

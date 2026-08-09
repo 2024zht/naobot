@@ -61,6 +61,8 @@ def test_command_argument(message, command, expected):
         ("问 今天天气如何", True, "问 今天天气如何"),
         ("问", True, "问"),
         ("介绍一下你自己", True, "介绍一下你自己"),
+        ("@nao 我完成了项目", False, "我完成了项目"),
+        ("@NAO 你在吗", False, "你在吗"),
         ("", True, ""),
         ("/问 今天天气如何", False, None),
         ("普通群聊", False, None),

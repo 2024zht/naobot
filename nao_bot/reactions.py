@@ -1,7 +1,10 @@
+import base64
+import random
 from pathlib import Path
 
 
 REACTION_COOLDOWN_SECONDS = 90
+REACTION_PACK_EXTENSIONS = frozenset({".gif", ".png", ".webp"})
 REACTION_PHRASES = (
     ("surprise", ("没想到", "居然", "竟然", "太意外", "真意外", "哇")),
     ("sorry", ("抱歉", "对不起", "不好意思", "很遗憾", "我理解错")),
@@ -43,5 +46,41 @@ def select_reaction_asset(
     if not asset.is_file():
         return None
 
-    last_sent[user_id] = now
     return asset
+
+
+def record_reaction_sent(last_sent: dict[int, float], user_id: int, *, now: float) -> None:
+    last_sent[user_id] = now
+
+
+def reaction_image_base64(asset: Path) -> str:
+    return base64.b64encode(asset.read_bytes()).decode("ascii")
+
+
+def list_reaction_pack_assets(asset_dir: Path) -> tuple[Path, ...]:
+    if not asset_dir.is_dir():
+        return ()
+    return tuple(
+        path
+        for path in sorted(asset_dir.iterdir())
+        if path.is_file() and path.suffix.casefold() in REACTION_PACK_EXTENSIONS
+    )
+
+
+def select_random_reaction_asset(
+    user_id: int,
+    last_sent: dict[int, float],
+    asset_dir: Path,
+    *,
+    now: float,
+    chance: float,
+    cooldown_seconds: int = REACTION_COOLDOWN_SECONDS,
+) -> Path | None:
+    previous = last_sent.get(user_id)
+    if previous is not None and now - previous < cooldown_seconds:
+        return None
+    if random.random() >= chance:
+        return None
+
+    assets = list_reaction_pack_assets(asset_dir)
+    return random.choice(assets) if assets else None

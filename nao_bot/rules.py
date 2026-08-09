@@ -57,11 +57,19 @@ def command_argument(text: str, command: str) -> str | None:
 
 
 def ai_question(text: str, is_tome: bool) -> str | None:
-    if not is_tome:
-        return None
-    return text.strip()
+    stripped = text.strip()
+    if is_tome:
+        return stripped
 
-
+    prefix = "@nao"
+    lowered = stripped.casefold()
+    if lowered == prefix:
+        return ""
+    if lowered.startswith(prefix) and len(stripped) > len(prefix):
+        suffix = stripped[len(prefix) :]
+        if suffix[0].isspace():
+            return suffix.strip()
+    return None
 def parse_mute_duration(text: str) -> int | None:
     argument = command_argument(text, "禁言")
     if argument is None:

@@ -7,6 +7,7 @@ from nonebot import logger, on_message, on_notice
 from nonebot.adapters import Event
 from nonebot.adapters.milky import Bot, Message, MessageSegment
 from nonebot.adapters.milky.event import GroupMemberIncreaseEvent, GroupMessageEvent
+from nonebot.adapters.milky.exception import NetworkError
 from nonebot.exception import IgnoredException
 from nonebot.matcher import Matcher
 from nonebot.message import event_preprocessor
@@ -28,7 +29,12 @@ from .moderation import (
     kick_member_with_confirmation,
     text_from_segments,
 )
-from .reactions import select_reaction_asset
+from .reactions import (
+    reaction_image_base64,
+    record_reaction_sent,
+    select_random_reaction_asset,
+    select_reaction_asset,
+)
 from .rules import (
     ai_question,
     command_argument,
@@ -55,8 +61,10 @@ except ValueError as error:
     raise RuntimeError("NAO_ADMIN_QQ_IDS must be comma-separated QQ numbers") from error
 
 AI_COOLDOWN_SECONDS = 10
+MONTHLY_SALARY_CAT_CHANCE = 0.2
 last_ai_requests: dict[int, float] = {}
 REACTION_ASSET_DIR = Path(__file__).parent / "assets" / "reactions"
+MONTHLY_SALARY_CAT_DIR = Path("/data/reaction_packs/monthly_salary_cat")
 last_reactions: dict[int, float] = {}
 keyword_store = KeywordStore(Path(os.environ.get("NAO_KEYWORDS_FILE", "/data/keywords.json")))
 violation_store = ViolationStore(Path(os.environ.get("NAO_MODERATION_FILE", "/data/moderation.json")))
@@ -530,23 +538,41 @@ async def handle_ai(event: GroupMessageEvent) -> None:
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         logger.exception("DeepSeek request failed")
         await ai_matcher.finish("AI 暂时不可用，请稍后再试。")
+    reaction_now = monotonic()
     reaction_asset = select_reaction_asset(
         answer,
         event.data.sender_id,
         last_reactions,
         REACTION_ASSET_DIR,
-        now=monotonic(),
+        now=reaction_now,
     )
     if reaction_asset is None:
-        await ai_matcher.finish(answer)
-    await ai_matcher.finish(
-        Message(
-            [
-                MessageSegment.text(answer),
-                MessageSegment.image(path=str(reaction_asset), sub_type="sticker"),
-            ]
+        reaction_asset = select_random_reaction_asset(
+            event.data.sender_id,
+            last_reactions,
+            MONTHLY_SALARY_CAT_DIR,
+            now=reaction_now,
+            chance=MONTHLY_SALARY_CAT_CHANCE,
         )
-    )
+    if reaction_asset is None:
+        await ai_matcher.finish(answer)
+    try:
+        await ai_matcher.send(
+            Message(
+                [
+                    MessageSegment.text(answer),
+                    MessageSegment.image(
+                        base64=reaction_image_base64(reaction_asset),
+                        sub_type="sticker",
+                    ),
+                ]
+            )
+        )
+    except (OSError, NetworkError):
+        logger.exception("Reaction sticker send failed; falling back to text")
+        await ai_matcher.finish(answer)
+    record_reaction_sent(last_reactions, event.data.sender_id, now=reaction_now)
+    await ai_matcher.finish()
 
 
 def is_static_message(event: GroupMessageEvent) -> bool:
