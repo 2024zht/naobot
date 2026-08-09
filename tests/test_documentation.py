@@ -82,7 +82,7 @@ def test_reminder_commands_and_storage_are_documented():
     features = (ROOT / "FEATURES.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    for command in ("@nao 定时 ", "@nao 定时列表", "@nao 取消定时"):
+    for command in ("@nao 定时 ", "@nao 定时任务", "@nao 定时列表", "@nao 取消定时"):
         assert command in HELP_TEXT
         assert command in features
         assert command in readme

@@ -1,7 +1,7 @@
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -13,6 +13,18 @@ MAX_REMINDER_CONTENT_LENGTH = 500
 MAX_PENDING_REMINDERS_PER_GROUP = 50
 REMINDER_TIME_FORMAT = "%Y-%m-%d %H:%M"
 ADD_REMINDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+(.+)$", re.DOTALL)
+NATURAL_REMINDER_PREFIXES = ("定时任务", "定时提醒")
+NATURAL_DATE_RE = re.compile(
+    r"(?P<relative>今天|明天|后天|大后天|本周[一二三四五六日天]|下周[一二三四五六日天])"
+    r"|(?P<full_year>\d{4})年(?P<full_month>\d{1,2})月(?P<full_day>\d{1,2})日?"
+    r"|(?P<dashed_year>\d{4})[-/]?(?P<dashed_month>\d{1,2})[-/](?P<dashed_day>\d{1,2})"
+    r"|(?P<month>\d{1,2})月(?P<day>\d{1,2})日?"
+)
+NATURAL_TIME_RE = re.compile(
+    r"(?P<period>凌晨|早上|上午|中午|下午|晚上)?\s*"
+    r"(?P<hour>\d{1,2})"
+    r"(?:\s*(?::|：)\s*(?P<colon_minute>\d{1,2})|点(?:(?P<half>半)|\s*(?P<point_minute>\d{1,2})分?)?)"
+)
 
 
 @dataclass(frozen=True)
@@ -21,6 +33,7 @@ class ReminderCommand:
     remind_at: datetime | None = None
     content: str = ""
     reminder_id: int | None = None
+    time_defaulted: bool = False
 
 
 @dataclass(frozen=True)
@@ -30,6 +43,124 @@ class Reminder:
     creator_id: int
     remind_at: datetime
     content: str
+
+
+def _normalize_now(now: datetime | None) -> datetime:
+    current_time = now or datetime.now(CHINA_TIMEZONE)
+    if current_time.tzinfo is None:
+        return current_time.replace(tzinfo=CHINA_TIMEZONE)
+    return current_time.astimezone(CHINA_TIMEZONE)
+
+
+def _parse_natural_date(match: re.Match[str], current_date: date) -> date:
+    relative = match.group("relative")
+    if relative in {"今天", "明天", "后天", "大后天"}:
+        offset = {"今天": 0, "明天": 1, "后天": 2, "大后天": 3}[relative]
+        return current_date + timedelta(days=offset)
+
+    weekday = "一二三四五六日天".index(relative[-1])
+    if weekday > 6:
+        weekday = 6
+    monday = current_date - timedelta(days=current_date.weekday())
+    if relative.startswith("下周"):
+        monday += timedelta(days=7)
+    target = monday + timedelta(days=weekday)
+    if relative.startswith("本周") and target < current_date:
+        target += timedelta(days=7)
+    return target
+
+
+def _natural_date(match: re.Match[str], current_date: date) -> date:
+    if match.group("relative"):
+        return _parse_natural_date(match, current_date)
+    if match.group("full_year"):
+        year = int(match.group("full_year"))
+        month = int(match.group("full_month"))
+        day = int(match.group("full_day"))
+    elif match.group("dashed_year"):
+        year = int(match.group("dashed_year"))
+        month = int(match.group("dashed_month"))
+        day = int(match.group("dashed_day"))
+    else:
+        year = current_date.year
+        month = int(match.group("month"))
+        day = int(match.group("day"))
+    try:
+        return date(year, month, day)
+    except ValueError as error:
+        raise ValueError("提醒日期无效") from error
+
+
+def _natural_time(match: re.Match[str]) -> time:
+    hour = int(match.group("hour"))
+    minute_text = match.group("colon_minute") or match.group("point_minute")
+    minute = 30 if match.group("half") else int(minute_text or 0)
+    period = match.group("period")
+    if period in {"下午", "晚上"} and hour < 12:
+        hour += 12
+    if period == "凌晨" and hour == 12:
+        hour = 0
+    if period in {"凌晨", "早上", "上午"} and hour > 12:
+        raise ValueError("凌晨或上午的小时数必须在 0 到 12 之间")
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError("提醒时间无效")
+    return time(hour, minute)
+
+
+def _reminder_content(value: str, spans: list[tuple[int, int]]) -> str:
+    content = value
+    for start, end in sorted(spans, reverse=True):
+        content = f"{content[:start]} {content[end:]}"
+    content = re.sub(r"^[\s,，:：;；-]+", "", content)
+    content = re.sub(r"^(?:提醒(?:我)?|叫我|记得)\s*", "", content)
+    return content.strip()
+
+
+def _parse_natural_add(argument: str, current_time: datetime) -> ReminderCommand:
+    date_match = NATURAL_DATE_RE.search(argument)
+    time_match = NATURAL_TIME_RE.search(argument)
+    if date_match is None and time_match is None:
+        raise ValueError("用法：@nao 定时任务，本周五 21:00 提醒内容")
+
+    target_date = (
+        _natural_date(date_match, current_time.date()) if date_match else current_time.date()
+    )
+    if time_match:
+        target_time = _natural_time(time_match)
+        time_defaulted = False
+    else:
+        target_time = time(9, 0)
+        time_defaulted = True
+    remind_at = datetime.combine(target_date, target_time, tzinfo=CHINA_TIMEZONE)
+    if date_match is None and remind_at <= current_time:
+        remind_at += timedelta(days=1)
+    spans: list[tuple[int, int]] = []
+    if date_match:
+        spans.append((date_match.start(), date_match.end()))
+    if time_match:
+        spans.append((time_match.start(), time_match.end()))
+    content = _reminder_content(argument, spans)
+    if not content:
+        raise ValueError("请写上提醒内容，例如：定时任务，明天 09:00 提醒开会")
+    return _validate_reminder(remind_at, content, current_time, time_defaulted)
+
+
+def _validate_reminder(
+    remind_at: datetime,
+    content: str,
+    current_time: datetime,
+    time_defaulted: bool = False,
+) -> ReminderCommand:
+    if remind_at <= current_time:
+        raise ValueError("提醒时间必须晚于当前时间")
+    if len(content) > MAX_REMINDER_CONTENT_LENGTH:
+        raise ValueError(f"提醒内容不能超过 {MAX_REMINDER_CONTENT_LENGTH} 个字符")
+    return ReminderCommand(
+        action="add",
+        remind_at=remind_at,
+        content=content,
+        time_defaulted=time_defaulted,
+    )
 
 
 def parse_reminder_command(text: str, now: datetime | None = None) -> ReminderCommand | None:
@@ -45,7 +176,19 @@ def parse_reminder_command(text: str, now: datetime | None = None) -> ReminderCo
 
     add_argument = command_argument(stripped, "定时")
     if add_argument is None:
-        return None
+        add_argument = next(
+            (
+                re.sub(r"^[\s,，:：;；]+", "", stripped[len(prefix) :])
+                for prefix in NATURAL_REMINDER_PREFIXES
+                if stripped.startswith(prefix)
+            ),
+            None,
+        )
+        if add_argument is None:
+            return None
+
+        return _parse_natural_add(add_argument, _normalize_now(now))
+
     match = ADD_REMINDER_RE.fullmatch(add_argument)
     if match is None:
         raise ValueError("用法：@nao 定时 YYYY-MM-DD HH:MM 提醒内容")
@@ -59,15 +202,7 @@ def parse_reminder_command(text: str, now: datetime | None = None) -> ReminderCo
     except ValueError as error:
         raise ValueError("提醒日期或时间无效，请使用 YYYY-MM-DD HH:MM") from error
 
-    current_time = now or datetime.now(CHINA_TIMEZONE)
-    if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=CHINA_TIMEZONE)
-    if remind_at <= current_time.astimezone(CHINA_TIMEZONE):
-        raise ValueError("提醒时间必须晚于当前时间")
-    content = content.strip()
-    if len(content) > MAX_REMINDER_CONTENT_LENGTH:
-        raise ValueError(f"提醒内容不能超过 {MAX_REMINDER_CONTENT_LENGTH} 个字符")
-    return ReminderCommand(action="add", remind_at=remind_at, content=content)
+    return _validate_reminder(remind_at, content.strip(), _normalize_now(now))
 
 
 class ReminderStore:

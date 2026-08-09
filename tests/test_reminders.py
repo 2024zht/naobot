@@ -11,6 +11,7 @@ from nao_bot.reminders import (
 
 
 NOW = datetime(2026, 8, 10, 20, 0, tzinfo=CHINA_TIMEZONE)
+SUNDAY_NIGHT = datetime(2026, 8, 9, 20, 0, tzinfo=CHINA_TIMEZONE)
 
 
 def test_parse_add_reminder_command():
@@ -20,6 +21,24 @@ def test_parse_add_reminder_command():
     assert command.action == "add"
     assert command.remind_at == datetime(2026, 8, 10, 21, 30, tzinfo=CHINA_TIMEZONE)
     assert command.content == "提交作业"
+
+
+def test_parse_natural_weekday_reminder_defaults_to_nine_am():
+    command = parse_reminder_command("定时任务，本周五提醒部署网站", now=SUNDAY_NIGHT)
+
+    assert command is not None
+    assert command.remind_at == datetime(2026, 8, 14, 9, 0, tzinfo=CHINA_TIMEZONE)
+    assert command.content == "部署网站"
+    assert command.time_defaulted is True
+
+
+def test_parse_natural_time_and_next_weekday():
+    command = parse_reminder_command("定时提醒，下周五晚上9点提醒我检查服务器", now=NOW)
+
+    assert command is not None
+    assert command.remind_at == datetime(2026, 8, 21, 21, 0, tzinfo=CHINA_TIMEZONE)
+    assert command.content == "检查服务器"
+    assert command.time_defaulted is False
 
 
 @pytest.mark.parametrize(
@@ -46,6 +65,7 @@ def test_parse_reminder_management_commands(text, action, reminder_id):
     [
         "定时",
         "定时 明天 21:00 提交作业",
+        "定时任务，提醒部署网站",
         "定时 2026-08-10 19:59 已经过期",
         "定时 2026-02-30 21:00 不存在的日期",
         "取消定时",

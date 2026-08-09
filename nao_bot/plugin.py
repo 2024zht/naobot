@@ -465,6 +465,7 @@ def is_reminder_command(event: GroupMessageEvent) -> bool:
     text = event.get_plaintext().strip()
     return event.is_tome() and (
         text == "定时列表"
+        or text.startswith(("定时任务", "定时提醒"))
         or command_argument(text, "定时") is not None
         or command_argument(text, "取消定时") is not None
     )
@@ -519,9 +520,10 @@ async def handle_reminder_command(bot: Bot, event: GroupMessageEvent) -> None:
         )
     except ValueError as error:
         await reminder_matcher.finish(str(error))
+    time_note = "（未指定时刻，已按 09:00 设置）" if command.time_defaulted else ""
     await reminder_matcher.finish(
         f"已设置定时提醒 #{reminder.id}\n"
-        f"时间：{format_reminder_time(reminder.remind_at)}\n"
+        f"时间：{format_reminder_time(reminder.remind_at)}{time_note}\n"
         f"内容：{reminder.content}"
     )
 
