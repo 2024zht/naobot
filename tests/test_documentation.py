@@ -100,4 +100,9 @@ def test_proactive_banter_mode_is_documented():
     assert "小火人" in features
     assert "小火人" in readme
     assert "45 秒" in features
+    assert "一到三句" in HELP_TEXT
+    assert "一到三句" in features
+    assert "一到三句" in readme
+    assert "web_search" in features
+    assert "联网" in HELP_TEXT
     assert "@nao" in features

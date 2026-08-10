@@ -4,15 +4,18 @@ from datetime import datetime
 import nao_bot.deepseek as deepseek
 from nao_bot.deepseek import (
     AIAnswer,
+    ProactiveDecision,
     ask_deepseek,
     extract_fraud_keywords,
     markdown_to_plain_text,
     parse_ai_response,
     parse_fraud_keyword_response,
     parse_proactive_response,
+    parse_responses_output_text,
     parse_reminder_tool_call,
-    request_proactive_reply,
+    request_proactive_decision,
     request_reminder_command,
+    request_searched_proactive_reply,
 )
 from nao_bot.reminders import CHINA_TIMEZONE
 
@@ -300,27 +303,27 @@ def test_request_reminder_command_uses_forced_deepseek_tool(monkeypatch):
 
 
 def test_parse_proactive_response_only_returns_confident_banter():
-    assert (
-        parse_proactive_response(
-            '{"should_reply":true,"reply":"这波属于是反向上分","confidence":0.91}'
-        )
-        == "这波属于是反向上分"
+    assert parse_proactive_response(
+        '{"action":"reply","reply":"这波属于是反向上分。属于精准控分了。",'
+        '"search_query":"","confidence":0.91}'
+    ) == ProactiveDecision(
+        reply="这波属于是反向上分。属于精准控分了。"
     )
-    assert (
-        parse_proactive_response(
-            '{"should_reply":false,"reply":"","confidence":0.2}'
-        )
-        is None
-    )
-    assert (
-        parse_proactive_response(
-            '{"should_reply":true,"reply":"硬接一句","confidence":0.6}'
-        )
-        is None
+    assert parse_proactive_response(
+        '{"action":"ignore","reply":"","search_query":"","confidence":0.2}'
+    ) == ProactiveDecision()
+    assert parse_proactive_response(
+        '{"action":"reply","reply":"硬接一句","search_query":"","confidence":0.6}'
+    ) == ProactiveDecision()
+    assert parse_proactive_response(
+        '{"action":"search","reply":"","search_query":"曼波 抖音 最新梗",'
+        '"confidence":0.88}'
+    ) == ProactiveDecision(
+        search_query="曼波 抖音 最新梗"
     )
 
 
-def test_request_proactive_reply_sends_recent_context(monkeypatch):
+def test_request_proactive_decision_sends_recent_context(monkeypatch):
     requests = []
 
     class Response:
@@ -333,8 +336,8 @@ def test_request_proactive_reply_sends_recent_context(monkeypatch):
                     {
                         "message": {
                             "content": (
-                                '{"should_reply":true,"reply":"那我可要开始记仇了",'
-                                '"confidence":0.9}'
+                                '{"action":"reply","reply":"那我可要开始记仇了。'
+                                '这下属于精准点名。","search_query":"","confidence":0.9}'
                             )
                         }
                     }
@@ -354,13 +357,107 @@ def test_request_proactive_reply_sends_recent_context(monkeypatch):
 
     monkeypatch.setattr(deepseek.httpx, "AsyncClient", lambda **kwargs: Client())
 
-    reply = asyncio.run(
-        request_proactive_reply("key", "model", ["今天谁加班", "反正不是我"], "老板来了")
+    decision = asyncio.run(
+        request_proactive_decision(
+            "key",
+            "model",
+            ["今天谁加班", "反正不是我"],
+            "老板来了",
+        )
     )
 
-    assert reply == "那我可要开始记仇了"
+    assert decision.reply == "那我可要开始记仇了。这下属于精准点名。"
     payload = requests[0][2]
     assert payload["response_format"] == {"type": "json_object"}
-    assert payload["max_tokens"] == 300
+    assert payload["max_tokens"] == 400
     assert "今天谁加班" in payload["messages"][1]["content"]
     assert "老板来了" in payload["messages"][1]["content"]
+
+
+def test_searched_proactive_reply_uses_responses_web_search(monkeypatch):
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "status": "completed",
+                "output": [
+                    {"type": "web_search_call", "status": "completed"},
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": (
+                                    '{"reply":"原来曼波已经进化到接宇宙版本了。'
+                                    '这套连招主打一个越抽象越上头。","confidence":0.9}'
+                                ),
+                            }
+                        ],
+                    },
+                ],
+            }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            requests.append((url, headers, json))
+            return Response()
+
+    monkeypatch.setattr(deepseek.httpx, "AsyncClient", lambda **kwargs: Client())
+
+    reply = asyncio.run(
+        request_searched_proactive_reply(
+            "key",
+            "deepseek-v4-flash",
+            ["最近都在说曼波"],
+            "曼波还能怎么接",
+            "曼波 抖音 最新梗",
+        )
+    )
+
+    assert reply == "原来曼波已经进化到接宇宙版本了。这套连招主打一个越抽象越上头。"
+    url, _, payload = requests[0]
+    assert url.endswith("/responses")
+    assert payload["tools"] == [{"type": "web_search"}]
+    assert payload["tool_choice"] == "auto"
+    assert payload["reasoning"] == {"effort": "low"}
+    assert payload["text"]["format"]["type"] == "json_schema"
+    assert "曼波 抖音 最新梗" in payload["input"]
+
+
+def test_parse_responses_output_requires_completed_message():
+    assert (
+        parse_responses_output_text(
+            {
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "结果"}],
+                    }
+                ],
+            }
+        )
+        == "结果"
+    )
+
+
+def test_searched_proactive_response_accepts_trailing_structured_json():
+    content = (
+        "先来了一段不应出现的普通文本。\n\n"
+        '{"reply":"这梗已经迭代到宇宙服了。再更新下去，版本号都得用星座命名。",'
+        '"confidence":0.86}'
+    )
+
+    assert deepseek.parse_searched_proactive_response(content) == (
+        "这梗已经迭代到宇宙服了。再更新下去，版本号都得用星座命名。"
+    )

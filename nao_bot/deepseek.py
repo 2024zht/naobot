@@ -15,6 +15,7 @@ from .reminders import (
 
 
 API_URL = "https://api.deepseek.com/chat/completions"
+RESPONSES_API_URL = "https://api.deepseek.com/responses"
 SYSTEM_PROMPT = """你是 QQ 群里的机器人助手 nao。
 请使用简体中文直接回答，默认保持简洁；需要步骤时再分点说明。
 不要声称自己已经执行现实操作或群管理操作。"""
@@ -54,11 +55,27 @@ FRAUD_KEYWORD_PROMPT = """从用户提供的违规广告原文中提取 3 到 8 
 不要提取“微信”“论文”“服务”“联系”“通知”等单独出现时可能正常的宽泛词。
 只输出 JSON，格式为 {"keywords":["短语1","短语2"]}。"""
 PROACTIVE_PROMPT = """你是 QQ 群里的“小火人”群聊搭子，负责判断是否值得主动接当前这句话。
-只在当前消息有明显的梗、反差、调侃、抛话题或适合自然接话时回复；普通陈述、技术讨论、严肃求助、争吵、隐私、广告、链接和看不懂的内容保持沉默。
-回复要像熟人群聊：5 到 30 个汉字，短、自然、有网感，可以接流行梗，但不要解释梗、强行玩梗、冒犯成员或编造事实。
-只输出 JSON 对象，不要代码围栏或额外文字。格式：{"should_reply":true,"reply":"接梗短句","confidence":0.9}。
-不应回复时使用：{"should_reply":false,"reply":"","confidence":0.0}。confidence 表示主动插话自然且合适的把握，范围 0 到 1。"""
+这是主动群聊模式，消息不会 @ 你；不要仅仅因为没有 @ 就忽略。当前消息出现反问、夸张、明显情绪，或与最近群聊形成反差时，应优先自然接话。
+只在当前消息有明显的梗、反差、调侃、抛话题或适合自然接话时回复；普通陈述、技术讨论、严肃求助、争吵、隐私、广告、链接以及不像网络梗又看不懂的内容保持沉默。
+回复要像熟人群聊：一到三句、约 20 到 120 个汉字，短而有内容，可以顺着梗补一句或继续抛话题；不要解释梗、强行玩梗、冒犯成员或编造事实。
+action 只能是 reply、search、ignore。能直接自然接话时用 reply；明显值得接但涉及近期或陌生网络梗、你无法可靠理解时才用 search，并给出简短搜索词；其他情况用 ignore。
+判定示例：前文说绝不加班，当前说“六点零一分通知开会，早一秒都怕我跑了是吧”应使用 reply；当前问“某个突然流行的陌生词到底是什么新梗”应使用 search；当前通知线上数据库故障、要求暂停操作应使用 ignore。
+只输出 JSON 对象，不要代码围栏或额外文字。格式：{"action":"reply","reply":"一到三句接梗内容","search_query":"","confidence":0.9}。
+需要搜索时格式：{"action":"search","reply":"","search_query":"需要核实的梗 搜索词","confidence":0.9}。不应回复时 action 为 ignore。confidence 表示主动插话自然且合适的把握，范围 0 到 1。"""
+SEARCHED_PROACTIVE_PROMPT = """你是 QQ 群里的“小火人”群聊搭子。最多执行一次联网搜索，核实指定网络梗的含义和近期用法。
+回复必须针对输入中的“当前消息”，不能改成回应搜索结果里的其他话题。只有搜索结果与当前消息中的梗明确匹配时，才生成一到三句、约 20 到 120 个汉字的自然接梗回复，可以顺着梗补一句或继续抛话题。
+不要解释搜索过程、展示链接、写成百科说明、强行玩梗、冒犯成员或编造事实。若搜索结果不匹配或搜索后仍没有把握，返回空回复和低置信度。无论是否回复，都只输出符合指定结构的 JSON 对象，不要输出额外文字。"""
 PROACTIVE_MIN_CONFIDENCE = 0.75
+PROACTIVE_MAX_REPLY_LENGTH = 180
+SEARCHED_PROACTIVE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reply": {"type": "string"},
+        "confidence": {"type": "number"},
+    },
+    "required": ["reply", "confidence"],
+    "additionalProperties": False,
+}
 REMINDER_TOOL = {
     "type": "function",
     "function": {
@@ -98,6 +115,12 @@ class AIAnswer:
     reaction_scene: str | None = None
     reaction_context: str = "serious"
     reaction_confidence: float = 0.0
+
+
+@dataclass(frozen=True)
+class ProactiveDecision:
+    reply: str | None = None
+    search_query: str | None = None
 
 
 def _plain_link(match: re.Match[str]) -> str:
@@ -212,7 +235,14 @@ def parse_fraud_keyword_response(content: str) -> list[str]:
     return [item.strip() for item in data if item.strip()]
 
 
-def parse_proactive_response(content: str) -> str | None:
+def _proactive_reply(value: str) -> str:
+    answer = " ".join(markdown_to_plain_text(value).split())
+    if not answer:
+        raise ValueError("DeepSeek returned an empty proactive reply")
+    return answer[:PROACTIVE_MAX_REPLY_LENGTH]
+
+
+def parse_proactive_response(content: str) -> ProactiveDecision:
     text = content.strip()
     fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
     if fenced:
@@ -224,32 +254,35 @@ def parse_proactive_response(content: str) -> str | None:
     if not isinstance(data, dict):
         raise ValueError("DeepSeek returned an invalid proactive response")
 
-    should_reply = data.get("should_reply")
+    action = data.get("action")
     reply = data.get("reply")
+    search_query = data.get("search_query")
     confidence = data.get("confidence")
     if (
-        not isinstance(should_reply, bool)
+        action not in {"reply", "search", "ignore"}
         or not isinstance(reply, str)
+        or not isinstance(search_query, str)
         or isinstance(confidence, bool)
         or not isinstance(confidence, (int, float))
         or not 0 <= confidence <= 1
     ):
         raise ValueError("DeepSeek returned an invalid proactive response")
-    if not should_reply or confidence < PROACTIVE_MIN_CONFIDENCE:
-        return None
+    if action == "ignore" or confidence < PROACTIVE_MIN_CONFIDENCE:
+        return ProactiveDecision()
+    if action == "search":
+        query = " ".join(search_query.split())
+        if not query:
+            raise ValueError("DeepSeek returned an empty proactive search query")
+        return ProactiveDecision(search_query=query[:100])
+    return ProactiveDecision(reply=_proactive_reply(reply))
 
-    answer = " ".join(markdown_to_plain_text(reply).split())
-    if not answer:
-        raise ValueError("DeepSeek returned an empty proactive reply")
-    return answer[:80]
 
-
-async def request_proactive_reply(
+async def request_proactive_decision(
     api_key: str,
     model: str,
     recent_messages: list[str],
     current_message: str,
-) -> str | None:
+) -> ProactiveDecision:
     context = "\n".join(recent_messages[-6:]) or "（没有更早的上下文）"
     user_content = f"最近群聊：\n{context}\n\n当前消息：\n{current_message[:200]}"
     payload = {
@@ -258,7 +291,7 @@ async def request_proactive_reply(
             {"role": "system", "content": PROACTIVE_PROMPT},
             {"role": "user", "content": user_content},
         ],
-        "max_tokens": 300,
+        "max_tokens": 400,
         "temperature": 0.8,
         "response_format": {"type": "json_object"},
     }
@@ -273,6 +306,99 @@ async def request_proactive_reply(
     if not isinstance(content, str) or not content.strip():
         raise ValueError("DeepSeek returned an empty proactive response")
     return parse_proactive_response(content)
+
+
+def parse_responses_output_text(data: dict) -> str:
+    if not isinstance(data, dict) or data.get("status") != "completed":
+        raise ValueError("DeepSeek web search response did not complete")
+    output = data.get("output")
+    if not isinstance(output, list):
+        raise ValueError("DeepSeek returned an invalid web search response")
+    for item in output:
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "output_text":
+                text = part.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text
+    raise ValueError("DeepSeek returned an empty web search response")
+
+
+def parse_searched_proactive_response(content: str) -> str | None:
+    text = content.strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        data = None
+        decoder = json.JSONDecoder()
+        for start in range(len(text) - 1, -1, -1):
+            if text[start] != "{":
+                continue
+            try:
+                candidate, end = decoder.raw_decode(text[start:])
+            except json.JSONDecodeError:
+                continue
+            if not text[start + end :].strip():
+                data = candidate
+                break
+    if not isinstance(data, dict):
+        raise ValueError("DeepSeek returned an invalid searched proactive response")
+    reply = data.get("reply")
+    confidence = data.get("confidence")
+    if (
+        not isinstance(reply, str)
+        or isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= confidence <= 1
+    ):
+        raise ValueError("DeepSeek returned an invalid searched proactive response")
+    if confidence < PROACTIVE_MIN_CONFIDENCE or not reply.strip():
+        return None
+    return _proactive_reply(reply)
+
+
+async def request_searched_proactive_reply(
+    api_key: str,
+    model: str,
+    recent_messages: list[str],
+    current_message: str,
+    search_query: str,
+) -> str | None:
+    context = "\n".join(recent_messages[-6:]) or "（没有更早的上下文）"
+    input_text = (
+        f"最近群聊：\n{context}\n\n当前消息：\n{current_message[:200]}"
+        f"\n\n建议核实：\n{search_query[:100]}"
+    )
+    payload = {
+        "model": model,
+        "instructions": SEARCHED_PROACTIVE_PROMPT,
+        "input": input_text,
+        "tools": [{"type": "web_search"}],
+        "tool_choice": "auto",
+        "max_output_tokens": 2000,
+        "reasoning": {"effort": "low"},
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "searched_proactive_reply",
+                "strict": True,
+                "schema": SEARCHED_PROACTIVE_SCHEMA,
+            }
+        },
+    }
+    headers = {"Authorization": f"Bearer {api_key}"}
+    timeout = httpx.Timeout(120, connect=10)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(RESPONSES_API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+
+    content = parse_responses_output_text(response.json())
+    return parse_searched_proactive_response(content)
 
 
 def parse_reminder_tool_call(data: dict, now: datetime) -> ReminderCommand:

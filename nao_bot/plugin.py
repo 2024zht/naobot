@@ -19,8 +19,9 @@ from nonebot.rule import Rule
 from .deepseek import (
     ask_deepseek,
     extract_fraud_keywords,
-    request_proactive_reply,
+    request_proactive_decision,
     request_reminder_command,
+    request_searched_proactive_reply,
 )
 from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_person_turn
 from .image_scan import scan_image_url
@@ -853,12 +854,21 @@ async def handle_proactive_message(event: GroupMessageEvent) -> None:
     proactive_groups_in_flight.add(group_id)
 
     try:
-        reply = await request_proactive_reply(
+        decision = await request_proactive_decision(
             DEEPSEEK_API_KEY,
             DEEPSEEK_MODEL,
             context,
             text,
         )
+        reply = decision.reply
+        if decision.search_query:
+            reply = await request_searched_proactive_reply(
+                DEEPSEEK_API_KEY,
+                DEEPSEEK_MODEL,
+                context,
+                text,
+                decision.search_query,
+            )
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         logger.exception("DeepSeek proactive reply request failed")
         return
