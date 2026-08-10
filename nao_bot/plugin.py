@@ -42,6 +42,7 @@ from .reminders import (
     ReminderStore,
     format_reminder_time,
     parse_reminder_command,
+    reminder_command_text,
 )
 from .rules import (
     ai_question,
@@ -462,13 +463,7 @@ async def handle_keyword_management(bot: Bot, event: GroupMessageEvent) -> None:
 
 
 def is_reminder_command(event: GroupMessageEvent) -> bool:
-    text = event.get_plaintext().strip()
-    return event.is_tome() and (
-        text == "定时列表"
-        or text.startswith(("定时任务", "定时提醒"))
-        or command_argument(text, "定时") is not None
-        or command_argument(text, "取消定时") is not None
-    )
+    return reminder_command_text(event.get_plaintext(), event.is_tome()) is not None
 
 
 reminder_matcher = on_message(
@@ -483,8 +478,11 @@ async def handle_reminder_command(bot: Bot, event: GroupMessageEvent) -> None:
     if not await can_manage(bot, event):
         await reminder_matcher.finish("你没有管理定时提醒的权限。")
 
+    text = reminder_command_text(event.get_plaintext(), event.is_tome())
+    if text is None:
+        return
     try:
-        command = parse_reminder_command(event.get_plaintext())
+        command = parse_reminder_command(text)
     except ValueError as error:
         await reminder_matcher.finish(str(error))
     if command is None:

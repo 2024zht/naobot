@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
-from .rules import command_argument
+from .rules import ai_question, command_argument
 
 
 CHINA_TIMEZONE = timezone(timedelta(hours=8), name="Asia/Shanghai")
@@ -43,6 +43,21 @@ class Reminder:
     creator_id: int
     remind_at: datetime
     content: str
+
+
+def reminder_command_text(text: str, is_tome: bool) -> str | None:
+    normalized = ai_question(text, is_tome)
+    if normalized is None:
+        return None
+    stripped = normalized.strip()
+    if (
+        stripped == "定时列表"
+        or stripped.startswith(NATURAL_REMINDER_PREFIXES)
+        or command_argument(stripped, "定时") is not None
+        or command_argument(stripped, "取消定时") is not None
+    ):
+        return stripped
+    return None
 
 
 def _normalize_now(now: datetime | None) -> datetime:

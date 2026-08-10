@@ -7,6 +7,7 @@ from nao_bot.reminders import (
     MAX_PENDING_REMINDERS_PER_GROUP,
     ReminderStore,
     parse_reminder_command,
+    reminder_command_text,
 )
 
 
@@ -39,6 +40,20 @@ def test_parse_natural_time_and_next_weekday():
     assert command.remind_at == datetime(2026, 8, 21, 21, 0, tzinfo=CHINA_TIMEZONE)
     assert command.content == "检查服务器"
     assert command.time_defaulted is False
+
+
+@pytest.mark.parametrize(
+    ("text", "is_tome", "expected"),
+    [
+        ("定时列表", True, "定时列表"),
+        ("@nao 定时列表", False, "定时列表"),
+        ("@NAO 定时任务，本周五 09:00 提醒内容", False, "定时任务，本周五 09:00 提醒内容"),
+        ("定时列表", False, None),
+        ("@nao 普通问题", False, None),
+    ],
+)
+def test_reminder_command_text_supports_plain_nao_prefix(text, is_tome, expected):
+    assert reminder_command_text(text, is_tome) == expected
 
 
 @pytest.mark.parametrize(
