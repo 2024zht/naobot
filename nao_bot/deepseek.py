@@ -53,6 +53,12 @@ FRAUD_KEYWORD_PROMPT = """从用户提供的违规广告原文中提取 3 到 8 
 短语必须在原文中真实出现，优先选择诈骗手法、承诺、引流账号和有辨识度的组合词。
 不要提取“微信”“论文”“服务”“联系”“通知”等单独出现时可能正常的宽泛词。
 只输出 JSON，格式为 {"keywords":["短语1","短语2"]}。"""
+PROACTIVE_PROMPT = """你是 QQ 群里的“小火人”群聊搭子，负责判断是否值得主动接当前这句话。
+只在当前消息有明显的梗、反差、调侃、抛话题或适合自然接话时回复；普通陈述、技术讨论、严肃求助、争吵、隐私、广告、链接和看不懂的内容保持沉默。
+回复要像熟人群聊：5 到 30 个汉字，短、自然、有网感，可以接流行梗，但不要解释梗、强行玩梗、冒犯成员或编造事实。
+只输出 JSON 对象，不要代码围栏或额外文字。格式：{"should_reply":true,"reply":"接梗短句","confidence":0.9}。
+不应回复时使用：{"should_reply":false,"reply":"","confidence":0.0}。confidence 表示主动插话自然且合适的把握，范围 0 到 1。"""
+PROACTIVE_MIN_CONFIDENCE = 0.75
 REMINDER_TOOL = {
     "type": "function",
     "function": {
@@ -204,6 +210,69 @@ def parse_fraud_keyword_response(content: str) -> list[str]:
     if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
         raise ValueError("DeepSeek returned invalid fraud keywords")
     return [item.strip() for item in data if item.strip()]
+
+
+def parse_proactive_response(content: str) -> str | None:
+    text = content.strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fenced:
+        text = fenced.group(1)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError("DeepSeek returned an invalid proactive response") from error
+    if not isinstance(data, dict):
+        raise ValueError("DeepSeek returned an invalid proactive response")
+
+    should_reply = data.get("should_reply")
+    reply = data.get("reply")
+    confidence = data.get("confidence")
+    if (
+        not isinstance(should_reply, bool)
+        or not isinstance(reply, str)
+        or isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= confidence <= 1
+    ):
+        raise ValueError("DeepSeek returned an invalid proactive response")
+    if not should_reply or confidence < PROACTIVE_MIN_CONFIDENCE:
+        return None
+
+    answer = " ".join(markdown_to_plain_text(reply).split())
+    if not answer:
+        raise ValueError("DeepSeek returned an empty proactive reply")
+    return answer[:80]
+
+
+async def request_proactive_reply(
+    api_key: str,
+    model: str,
+    recent_messages: list[str],
+    current_message: str,
+) -> str | None:
+    context = "\n".join(recent_messages[-6:]) or "（没有更早的上下文）"
+    user_content = f"最近群聊：\n{context}\n\n当前消息：\n{current_message[:200]}"
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": PROACTIVE_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        "max_tokens": 300,
+        "temperature": 0.8,
+        "response_format": {"type": "json_object"},
+    }
+    headers = {"Authorization": f"Bearer {api_key}"}
+    timeout = httpx.Timeout(60, connect=10)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+
+    content = response.json()["choices"][0]["message"]["content"]
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("DeepSeek returned an empty proactive response")
+    return parse_proactive_response(content)
 
 
 def parse_reminder_tool_call(data: dict, now: datetime) -> ReminderCommand:

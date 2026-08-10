@@ -9,7 +9,9 @@ from nao_bot.deepseek import (
     markdown_to_plain_text,
     parse_ai_response,
     parse_fraud_keyword_response,
+    parse_proactive_response,
     parse_reminder_tool_call,
+    request_proactive_reply,
     request_reminder_command,
 )
 from nao_bot.reminders import CHINA_TIMEZONE
@@ -295,3 +297,70 @@ def test_request_reminder_command_uses_forced_deepseek_tool(monkeypatch):
     assert payload["tool_choice"] == "auto"
     assert payload["tools"][0]["function"]["name"] == "create_reminder"
     assert "2026-08-10 16:22" in payload["messages"][0]["content"]
+
+
+def test_parse_proactive_response_only_returns_confident_banter():
+    assert (
+        parse_proactive_response(
+            '{"should_reply":true,"reply":"这波属于是反向上分","confidence":0.91}'
+        )
+        == "这波属于是反向上分"
+    )
+    assert (
+        parse_proactive_response(
+            '{"should_reply":false,"reply":"","confidence":0.2}'
+        )
+        is None
+    )
+    assert (
+        parse_proactive_response(
+            '{"should_reply":true,"reply":"硬接一句","confidence":0.6}'
+        )
+        is None
+    )
+
+
+def test_request_proactive_reply_sends_recent_context(monkeypatch):
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"should_reply":true,"reply":"那我可要开始记仇了",'
+                                '"confidence":0.9}'
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            requests.append((url, headers, json))
+            return Response()
+
+    monkeypatch.setattr(deepseek.httpx, "AsyncClient", lambda **kwargs: Client())
+
+    reply = asyncio.run(
+        request_proactive_reply("key", "model", ["今天谁加班", "反正不是我"], "老板来了")
+    )
+
+    assert reply == "那我可要开始记仇了"
+    payload = requests[0][2]
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["max_tokens"] == 300
+    assert "今天谁加班" in payload["messages"][1]["content"]
+    assert "老板来了" in payload["messages"][1]["content"]

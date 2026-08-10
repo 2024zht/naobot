@@ -1,6 +1,10 @@
 from typing import Iterable
 
 
+PROACTIVE_CHECK_INTERVAL_SECONDS = 8
+PROACTIVE_REPLY_COOLDOWN_SECONDS = 45
+
+
 HELP_TEXT = """nao 可用指令：
 @nao 帮助 - 查看指令
 @nao 状态 - 检查运行状态
@@ -27,6 +31,7 @@ HELP_TEXT = """nao 可用指令：
 @nao 添加违规 内容 - 管理员提取违规词（也可回复消息）
 @nao 违规词列表 - 管理员查看违规词黑名单
 @nao 删除违规词 词条 - 管理员删除违规词
+普通群聊启用小火人模式，会在合适时主动接梗；@nao 模式仍然保留。
 发送“你好”也可以和我打招呼。"""
 
 COMMAND_REPLIES = {
@@ -75,6 +80,37 @@ def ai_question(text: str, is_tome: bool) -> str | None:
         if suffix[0].isspace():
             return suffix.strip()
     return None
+
+
+def proactive_message_text(
+    text: str,
+    is_tome: bool,
+    is_self: bool,
+    has_automatic_reply: bool,
+) -> str | None:
+    stripped = text.strip()
+    lowered = stripped.casefold()
+    if (
+        not stripped
+        or len(stripped) > 200
+        or is_self
+        or is_tome
+        or has_automatic_reply
+        or ai_question(stripped, False) is not None
+        or "http://" in lowered
+        or "https://" in lowered
+    ):
+        return None
+    return stripped
+
+
+def proactive_check_allowed(now: float, last_check: float, last_reply: float) -> bool:
+    return (
+        now - last_check >= PROACTIVE_CHECK_INTERVAL_SECONDS
+        and now - last_reply >= PROACTIVE_REPLY_COOLDOWN_SECONDS
+    )
+
+
 def parse_mute_duration(text: str) -> int | None:
     argument = command_argument(text, "禁言")
     if argument is None:

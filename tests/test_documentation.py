@@ -90,3 +90,14 @@ def test_reminder_commands_and_storage_are_documented():
     assert "data/reminders.sqlite3" in readme
     assert "每天晚上九点" in HELP_TEXT
     assert "一次性、每天和每周" in features
+
+
+def test_proactive_banter_mode_is_documented():
+    features = (ROOT / "FEATURES.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "小火人" in HELP_TEXT
+    assert "小火人" in features
+    assert "小火人" in readme
+    assert "45 秒" in features
+    assert "@nao" in features

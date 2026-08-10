@@ -8,6 +8,8 @@ from nao_bot.rules import (
     is_allowed_group,
     parse_mute_duration,
     parse_qq_ids,
+    proactive_check_allowed,
+    proactive_message_text,
     reply_for_text,
     select_target_user_id,
 )
@@ -123,3 +125,33 @@ def test_target_user_skips_bot_mention_and_falls_back_to_reply():
     assert select_target_user_id([123456789, 987654321], 123456789, None) == 987654321
     assert select_target_user_id([123456789], 123456789, 987654321) == 987654321
     assert select_target_user_id([123456789], 123456789, None) is None
+
+
+@pytest.mark.parametrize(
+    ("message", "is_tome", "is_self", "has_automatic_reply", "expected"),
+    [
+        ("绷不住了", False, False, False, "绷不住了"),
+        ("@nao 绷不住了", False, False, False, None),
+        ("绷不住了", True, False, False, None),
+        ("绷不住了", False, True, False, None),
+        ("你好", False, False, True, None),
+        ("https://example.com", False, False, False, None),
+        ("   ", False, False, False, None),
+    ],
+)
+def test_proactive_message_keeps_mention_mode_separate(
+    message,
+    is_tome,
+    is_self,
+    has_automatic_reply,
+    expected,
+):
+    assert (
+        proactive_message_text(message, is_tome, is_self, has_automatic_reply) == expected
+    )
+
+
+def test_proactive_check_respects_request_and_reply_cooldowns():
+    assert proactive_check_allowed(100, last_check=90, last_reply=50) is True
+    assert proactive_check_allowed(100, last_check=95, last_reply=0) is False
+    assert proactive_check_allowed(100, last_check=0, last_reply=70) is False

@@ -16,7 +16,12 @@ from nonebot.matcher import Matcher
 from nonebot.message import event_preprocessor
 from nonebot.rule import Rule
 
-from .deepseek import ask_deepseek, extract_fraud_keywords, request_reminder_command
+from .deepseek import (
+    ask_deepseek,
+    extract_fraud_keywords,
+    request_proactive_reply,
+    request_reminder_command,
+)
 from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_person_turn
 from .image_scan import scan_image_url
 from .keywords import MAX_KEYWORDS, KeywordStore, parse_keyword_command
@@ -52,6 +57,8 @@ from .rules import (
     is_allowed_group,
     parse_mute_duration,
     parse_qq_ids,
+    proactive_check_allowed,
+    proactive_message_text,
     reply_for_text,
     select_target_user_id,
 )
@@ -73,6 +80,11 @@ except ValueError as error:
 AI_COOLDOWN_SECONDS = 10
 REACTION_HISTORY_SIZE = 3
 last_ai_requests: dict[int, float] = {}
+PROACTIVE_HISTORY_SIZE = 6
+recent_group_messages: dict[int, deque[str]] = {}
+last_proactive_checks: dict[int, float] = {}
+last_proactive_replies: dict[int, float] = {}
+proactive_groups_in_flight: set[int] = set()
 REACTION_ASSET_DIR = Path(__file__).parent / "assets" / "reactions"
 REACTION_PACK_ROOT = Path(os.environ.get("NAO_REACTION_PACK_ROOT", "/data/reaction_packs"))
 reaction_catalog = ReactionCatalog(
@@ -760,7 +772,10 @@ async def handle_ai(bot: Bot, event: GroupMessageEvent) -> None:
 
 
 def is_static_message(event: GroupMessageEvent) -> bool:
-    return reply_for_text(event.get_plaintext(), event.is_tome()) is not None
+    return (
+        event.data.sender_id != event.self_id
+        and reply_for_text(event.get_plaintext(), event.is_tome()) is not None
+    )
 
 
 static_matcher = on_message(
@@ -782,9 +797,78 @@ keyword_reply_matcher = on_message(rule=Rule(is_test_group), priority=20, block=
 
 @keyword_reply_matcher.handle()
 async def handle_keyword_reply(event: GroupMessageEvent) -> None:
+    if event.data.sender_id == event.self_id:
+        return
     response = keyword_store.get(event.get_plaintext().strip())
     if response is not None:
         await keyword_reply_matcher.finish(response)
+
+
+def proactive_text(event: GroupMessageEvent) -> str | None:
+    text = event.get_plaintext().strip()
+    has_automatic_reply = (
+        reply_for_text(text, False) is not None or keyword_store.get(text) is not None
+    )
+    return proactive_message_text(
+        text,
+        event.is_tome(),
+        event.data.sender_id == event.self_id,
+        has_automatic_reply,
+    )
+
+
+def is_proactive_message(event: GroupMessageEvent) -> bool:
+    return bool(DEEPSEEK_API_KEY) and proactive_text(event) is not None
+
+
+proactive_matcher = on_message(
+    rule=Rule(is_test_group) & Rule(is_proactive_message),
+    priority=30,
+    block=False,
+)
+
+
+@proactive_matcher.handle()
+async def handle_proactive_message(event: GroupMessageEvent) -> None:
+    text = proactive_text(event)
+    if text is None:
+        return
+
+    group_id = event.data.peer_id
+    history = recent_group_messages.setdefault(
+        group_id,
+        deque(maxlen=PROACTIVE_HISTORY_SIZE),
+    )
+    context = list(history)
+    history.append(text)
+
+    now = monotonic()
+    if group_id in proactive_groups_in_flight or not proactive_check_allowed(
+        now,
+        last_proactive_checks.get(group_id, 0),
+        last_proactive_replies.get(group_id, 0),
+    ):
+        return
+    last_proactive_checks[group_id] = now
+    proactive_groups_in_flight.add(group_id)
+
+    try:
+        reply = await request_proactive_reply(
+            DEEPSEEK_API_KEY,
+            DEEPSEEK_MODEL,
+            context,
+            text,
+        )
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
+        logger.exception("DeepSeek proactive reply request failed")
+        return
+    finally:
+        proactive_groups_in_flight.discard(group_id)
+    if reply is None:
+        return
+
+    last_proactive_replies[group_id] = monotonic()
+    await proactive_matcher.send(reply)
 
 
 welcome_matcher = on_notice(priority=10, block=False)
