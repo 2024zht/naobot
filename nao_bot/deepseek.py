@@ -60,12 +60,14 @@ PROACTIVE_PROMPT = """你是 QQ 群里的“小火人”群聊搭子，负责判
 回复要像熟人群聊：一到三句、约 20 到 120 个汉字，短而有内容，可以顺着梗补一句或继续抛话题；不要解释梗、强行玩梗、冒犯成员或编造事实。
 action 只能是 reply、search、ignore。能直接自然接话时用 reply；明显值得接但涉及近期或陌生网络梗、你无法可靠理解时才用 search，并给出简短搜索词；其他情况用 ignore。
 判定示例：前文说绝不加班，当前说“六点零一分通知开会，早一秒都怕我跑了是吧”应使用 reply；当前问“某个突然流行的陌生词到底是什么新梗”应使用 search；当前通知线上数据库故障、要求暂停操作应使用 ignore。
+search_query 必须原样包含当前消息中需要核实的人名、短语或梗，不要改写或音译。
 只输出 JSON 对象，不要代码围栏或额外文字。格式：{"action":"reply","reply":"一到三句接梗内容","search_query":"","confidence":0.9}。
 需要搜索时格式：{"action":"search","reply":"","search_query":"需要核实的梗 搜索词","confidence":0.9}。不应回复时 action 为 ignore。confidence 表示主动插话自然且合适的把握，范围 0 到 1。"""
 SEARCHED_PROACTIVE_PROMPT = """你是 QQ 群里的“小火人”群聊搭子。最多执行一次联网搜索，核实指定网络梗的含义和近期用法。
 回复必须针对输入中的“当前消息”，不能改成回应搜索结果里的其他话题。只有搜索结果与当前消息中的梗明确匹配时，才生成一到三句、约 20 到 120 个汉字的自然接梗回复，可以顺着梗补一句或继续抛话题。
 不要解释搜索过程、展示链接、写成百科说明、强行玩梗、冒犯成员或编造事实。若搜索结果不匹配或搜索后仍没有把握，返回空回复和低置信度。无论是否回复，都只输出符合指定结构的 JSON 对象，不要输出额外文字。"""
 PROACTIVE_MIN_CONFIDENCE = 0.75
+PROACTIVE_SEARCH_MIN_CONFIDENCE = 0.65
 PROACTIVE_MAX_REPLY_LENGTH = 180
 SEARCHED_PROACTIVE_SCHEMA = {
     "type": "object",
@@ -267,13 +269,17 @@ def parse_proactive_response(content: str) -> ProactiveDecision:
         or not 0 <= confidence <= 1
     ):
         raise ValueError("DeepSeek returned an invalid proactive response")
-    if action == "ignore" or confidence < PROACTIVE_MIN_CONFIDENCE:
+    if action == "ignore":
         return ProactiveDecision()
     if action == "search":
+        if confidence < PROACTIVE_SEARCH_MIN_CONFIDENCE:
+            return ProactiveDecision()
         query = " ".join(search_query.split())
         if not query:
             raise ValueError("DeepSeek returned an empty proactive search query")
         return ProactiveDecision(search_query=query[:100])
+    if confidence < PROACTIVE_MIN_CONFIDENCE:
+        return ProactiveDecision()
     return ProactiveDecision(reply=_proactive_reply(reply))
 
 
@@ -292,8 +298,9 @@ async def request_proactive_decision(
             {"role": "user", "content": user_content},
         ],
         "max_tokens": 400,
-        "temperature": 0.8,
+        "temperature": 0,
         "response_format": {"type": "json_object"},
+        "thinking": {"type": "disabled"},
     }
     headers = {"Authorization": f"Bearer {api_key}"}
     timeout = httpx.Timeout(60, connect=10)

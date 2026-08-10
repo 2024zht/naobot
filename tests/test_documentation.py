@@ -104,5 +104,6 @@ def test_proactive_banter_mode_is_documented():
     assert "一到三句" in features
     assert "一到三句" in readme
     assert "web_search" in features
+    assert "0.65" in features
     assert "联网" in HELP_TEXT
     assert "@nao" in features

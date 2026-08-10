@@ -321,6 +321,14 @@ def test_parse_proactive_response_only_returns_confident_banter():
     ) == ProactiveDecision(
         search_query="曼波 抖音 最新梗"
     )
+    assert parse_proactive_response(
+        '{"action":"search","reply":"","search_query":"耿同学 梗",'
+        '"confidence":0.7}'
+    ) == ProactiveDecision(search_query="耿同学 梗")
+    assert parse_proactive_response(
+        '{"action":"search","reply":"","search_query":"模糊词",'
+        '"confidence":0.6}'
+    ) == ProactiveDecision()
 
 
 def test_request_proactive_decision_sends_recent_context(monkeypatch):
@@ -370,6 +378,9 @@ def test_request_proactive_decision_sends_recent_context(monkeypatch):
     payload = requests[0][2]
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["max_tokens"] == 400
+    assert payload["temperature"] == 0
+    assert payload["thinking"] == {"type": "disabled"}
+    assert "search_query 必须原样包含" in payload["messages"][0]["content"]
     assert "今天谁加班" in payload["messages"][1]["content"]
     assert "老板来了" in payload["messages"][1]["content"]
 
