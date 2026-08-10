@@ -88,3 +88,5 @@ def test_reminder_commands_and_storage_are_documented():
         assert command in readme
     assert "data/reminders.sqlite3" in features
     assert "data/reminders.sqlite3" in readme
+    assert "每天晚上九点" in HELP_TEXT
+    assert "一次性、每天和每周" in features

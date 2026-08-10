@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 
 import nao_bot.deepseek as deepseek
 from nao_bot.deepseek import (
@@ -8,7 +9,10 @@ from nao_bot.deepseek import (
     markdown_to_plain_text,
     parse_ai_response,
     parse_fraud_keyword_response,
+    parse_reminder_tool_call,
+    request_reminder_command,
 )
+from nao_bot.reminders import CHINA_TIMEZONE
 
 
 def test_markdown_to_plain_text():
@@ -156,3 +160,138 @@ def test_ask_deepseek_requests_reply_and_reaction_in_one_json_response(monkeypat
     assert answer.reaction_context == "playful"
     assert requests[0][2]["response_format"] == {"type": "json_object"}
     assert "reaction" in requests[0][2]["messages"][0]["content"]
+    assert "tools" not in requests[0][2]
+
+
+def test_ask_deepseek_allows_admin_reminder_tool(monkeypatch):
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "create_reminder",
+                                        "arguments": (
+                                            '{"remind_at":"2026-08-10 21:00",'
+                                            '"content":"写donelist","repeat_days":1,'
+                                            '"time_defaulted":false}'
+                                        ),
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            requests.append((url, headers, json))
+            return Response()
+
+    monkeypatch.setattr(deepseek.httpx, "AsyncClient", lambda **kwargs: Client())
+    now = datetime(2026, 8, 10, 16, 22, tzinfo=CHINA_TIMEZONE)
+
+    command = asyncio.run(
+        ask_deepseek("key", "model", "每天晚上九点提醒我写donelist", True, now)
+    )
+
+    assert command.repeat_days == 1
+    assert requests[0][2]["tool_choice"] == "auto"
+    assert requests[0][2]["tools"][0]["function"]["name"] == "create_reminder"
+
+
+def test_parse_reminder_tool_call_accepts_daily_task():
+    command = parse_reminder_tool_call(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "create_reminder",
+                                    "arguments": (
+                                        '{"remind_at":"2026-08-10 21:00",'
+                                        '"content":"@夏末秋凉 写donelist","repeat_days":1}'
+                                    ),
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        datetime(2026, 8, 10, 16, 22, tzinfo=CHINA_TIMEZONE),
+    )
+
+    assert command.remind_at == datetime(2026, 8, 10, 21, 0, tzinfo=CHINA_TIMEZONE)
+    assert command.content == "@夏末秋凉 写donelist"
+    assert command.repeat_days == 1
+
+
+def test_request_reminder_command_uses_forced_deepseek_tool(monkeypatch):
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "create_reminder",
+                                        "arguments": (
+                                            '{"remind_at":"2026-08-10 21:00",'
+                                            '"content":"写donelist","repeat_days":1}'
+                                        ),
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            requests.append((url, headers, json))
+            return Response()
+
+    monkeypatch.setattr(deepseek.httpx, "AsyncClient", lambda **kwargs: Client())
+    now = datetime(2026, 8, 10, 16, 22, tzinfo=CHINA_TIMEZONE)
+
+    command = asyncio.run(
+        request_reminder_command("key", "model", "每天晚上九点写donelist", now)
+    )
+
+    assert command.repeat_days == 1
+    payload = requests[0][2]
+    assert payload["tool_choice"] == "auto"
+    assert payload["tools"][0]["function"]["name"] == "create_reminder"
+    assert "2026-08-10 16:22" in payload["messages"][0]["content"]

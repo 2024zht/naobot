@@ -16,7 +16,7 @@ from nonebot.matcher import Matcher
 from nonebot.message import event_preprocessor
 from nonebot.rule import Rule
 
-from .deepseek import ask_deepseek, extract_fraud_keywords
+from .deepseek import ask_deepseek, extract_fraud_keywords, request_reminder_command
 from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_person_turn
 from .image_scan import scan_image_url
 from .keywords import MAX_KEYWORDS, KeywordStore, parse_keyword_command
@@ -39,6 +39,7 @@ from .reactions import (
 )
 from .reminders import (
     CHINA_TIMEZONE,
+    ReminderCommand,
     ReminderStore,
     format_reminder_time,
     parse_reminder_command,
@@ -160,7 +161,7 @@ async def _send_due_reminders() -> None:
         except Exception:
             logger.exception(f"Scheduled reminder delivery failed for task {reminder.id}")
             continue
-        reminder_store.complete(reminder.id)
+        reminder_store.complete(reminder.id, datetime.now(CHINA_TIMEZONE))
 
 
 async def _reminder_scheduler_loop() -> None:
@@ -482,9 +483,15 @@ async def handle_reminder_command(bot: Bot, event: GroupMessageEvent) -> None:
     if text is None:
         return
     try:
-        command = parse_reminder_command(text)
-    except ValueError as error:
-        await reminder_matcher.finish(str(error))
+        if text.startswith(("定时任务", "定时提醒")):
+            if not DEEPSEEK_API_KEY:
+                await reminder_matcher.finish("智能定时尚未配置。")
+            command = await request_reminder_command(DEEPSEEK_API_KEY, DEEPSEEK_MODEL, text)
+        else:
+            command = parse_reminder_command(text)
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as error:
+        logger.exception("DeepSeek reminder request failed")
+        await reminder_matcher.finish(f"没有理解这个定时任务：{error}")
     if command is None:
         return
 
@@ -499,7 +506,10 @@ async def handle_reminder_command(bot: Bot, event: GroupMessageEvent) -> None:
             content = " ".join(reminder.content.split())
             if len(content) > 60:
                 content = f"{content[:57]}..."
-            lines.append(f"#{reminder.id} {format_reminder_time(reminder.remind_at)} {content}")
+            repeat = {1: " 每天", 7: " 每周"}.get(reminder.repeat_days, "")
+            lines.append(
+                f"#{reminder.id} {format_reminder_time(reminder.remind_at)}{repeat} {content}"
+            )
         if len(reminders) > len(visible):
             lines.append(f"还有 {len(reminders) - len(visible)} 条未显示。")
         await reminder_matcher.finish("待发送的定时提醒：\n" + "\n".join(lines))
@@ -515,13 +525,16 @@ async def handle_reminder_command(bot: Bot, event: GroupMessageEvent) -> None:
             event.data.sender_id,
             command.remind_at,
             command.content,
+            command.repeat_days,
         )
     except ValueError as error:
         await reminder_matcher.finish(str(error))
     time_note = "（未指定时刻，已按 09:00 设置）" if command.time_defaulted else ""
+    repeat_note = {1: "每天", 7: "每周"}.get(command.repeat_days, "仅一次")
     await reminder_matcher.finish(
         f"已设置定时提醒 #{reminder.id}\n"
         f"时间：{format_reminder_time(reminder.remind_at)}{time_note}\n"
+        f"重复：{repeat_note}\n"
         f"内容：{reminder.content}"
     )
 
@@ -663,7 +676,7 @@ ai_matcher = on_message(rule=Rule(is_test_group) & Rule(is_ai_command), priority
 
 
 @ai_matcher.handle()
-async def handle_ai(event: GroupMessageEvent) -> None:
+async def handle_ai(bot: Bot, event: GroupMessageEvent) -> None:
     question = ai_question(event.get_plaintext(), event.is_tome())
     if not question:
         await ai_matcher.finish("请在 @我 后面写上你的问题，例如：@nao 你能做什么？")
@@ -677,10 +690,34 @@ async def handle_ai(event: GroupMessageEvent) -> None:
     last_ai_requests[event.data.sender_id] = now
 
     try:
-        answer = await ask_deepseek(DEEPSEEK_API_KEY, DEEPSEEK_MODEL, question)
+        answer = await ask_deepseek(
+            DEEPSEEK_API_KEY,
+            DEEPSEEK_MODEL,
+            question,
+            allow_reminder=await can_manage(bot, event),
+        )
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         logger.exception("DeepSeek request failed")
         await ai_matcher.finish("AI 暂时不可用，请稍后再试。")
+    if isinstance(answer, ReminderCommand):
+        try:
+            reminder = reminder_store.add(
+                event.data.peer_id,
+                event.data.sender_id,
+                answer.remind_at,
+                answer.content,
+                answer.repeat_days,
+            )
+        except ValueError as error:
+            await ai_matcher.finish(str(error))
+        time_note = "（未指定时刻，已按 09:00 设置）" if answer.time_defaulted else ""
+        repeat_note = {1: "每天", 7: "每周"}.get(answer.repeat_days, "仅一次")
+        await ai_matcher.finish(
+            f"已设置定时提醒 #{reminder.id}\n"
+            f"时间：{format_reminder_time(reminder.remind_at)}{time_note}\n"
+            f"重复：{repeat_note}\n"
+            f"内容：{reminder.content}"
+        )
     catalog_assets: tuple[Path, ...] = ()
     if answer.reaction_scene:
         try:

@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime, timedelta
 
 import pytest
@@ -40,6 +41,42 @@ def test_parse_natural_time_and_next_weekday():
     assert command.remind_at == datetime(2026, 8, 21, 21, 0, tzinfo=CHINA_TIMEZONE)
     assert command.content == "检查服务器"
     assert command.time_defaulted is False
+
+
+def test_recurring_reminder_advances_after_delivery(tmp_path):
+    store = ReminderStore(tmp_path / "reminders.sqlite3")
+    reminder = store.add(100, 200, NOW + timedelta(hours=1), "写 donelist", repeat_days=1)
+
+    assert reminder.repeat_days == 1
+    assert store.complete(reminder.id, NOW + timedelta(hours=1)) is True
+    assert store.list_pending(100)[0].remind_at == NOW + timedelta(days=1, hours=1)
+
+
+def test_reminder_store_migrates_existing_database(tmp_path):
+    path = tmp_path / "reminders.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                creator_id INTEGER NOT NULL,
+                remind_at INTEGER NOT NULL,
+                content TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO reminders (group_id, creator_id, remind_at, content) "
+            "VALUES (?, ?, ?, ?)",
+            (100, 200, int((NOW + timedelta(hours=1)).timestamp()), "旧任务"),
+        )
+
+    reminders = ReminderStore(path).list_pending(100)
+
+    assert len(reminders) == 1
+    assert reminders[0].content == "旧任务"
+    assert reminders[0].repeat_days == 0
 
 
 @pytest.mark.parametrize(

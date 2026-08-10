@@ -34,6 +34,7 @@ class ReminderCommand:
     content: str = ""
     reminder_id: int | None = None
     time_defaulted: bool = False
+    repeat_days: int = 0
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class Reminder:
     creator_id: int
     remind_at: datetime
     content: str
+    repeat_days: int = 0
 
 
 def reminder_command_text(text: str, is_tome: bool) -> str | None:
@@ -165,16 +167,20 @@ def _validate_reminder(
     content: str,
     current_time: datetime,
     time_defaulted: bool = False,
+    repeat_days: int = 0,
 ) -> ReminderCommand:
     if remind_at <= current_time:
         raise ValueError("提醒时间必须晚于当前时间")
     if len(content) > MAX_REMINDER_CONTENT_LENGTH:
         raise ValueError(f"提醒内容不能超过 {MAX_REMINDER_CONTENT_LENGTH} 个字符")
+    if repeat_days not in {0, 1, 7}:
+        raise ValueError("重复周期只支持一次、每天或每周")
     return ReminderCommand(
         action="add",
         remind_at=remind_at,
         content=content,
         time_defaulted=time_defaulted,
+        repeat_days=repeat_days,
     )
 
 
@@ -232,10 +238,18 @@ class ReminderStore:
                     group_id INTEGER NOT NULL,
                     creator_id INTEGER NOT NULL,
                     remind_at INTEGER NOT NULL,
-                    content TEXT NOT NULL
+                    content TEXT NOT NULL,
+                    repeat_days INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(reminders)").fetchall()
+            }
+            if "repeat_days" not in columns:
+                connection.execute(
+                    "ALTER TABLE reminders ADD COLUMN repeat_days INTEGER NOT NULL DEFAULT 0"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders (remind_at, id)"
             )
@@ -253,6 +267,7 @@ class ReminderStore:
             creator_id=row["creator_id"],
             remind_at=datetime.fromtimestamp(row["remind_at"], CHINA_TIMEZONE),
             content=row["content"],
+            repeat_days=row["repeat_days"],
         )
 
     def add(
@@ -261,7 +276,10 @@ class ReminderStore:
         creator_id: int,
         remind_at: datetime,
         content: str,
+        repeat_days: int = 0,
     ) -> Reminder:
+        if repeat_days not in {0, 1, 7}:
+            raise ValueError("重复周期只支持一次、每天或每周")
         with self._connect() as connection:
             pending_count = connection.execute(
                 "SELECT COUNT(*) FROM reminders WHERE group_id = ?",
@@ -270,11 +288,12 @@ class ReminderStore:
             if pending_count >= MAX_PENDING_REMINDERS_PER_GROUP:
                 raise ValueError(f"每个群最多保留 {MAX_PENDING_REMINDERS_PER_GROUP} 条定时提醒")
             cursor = connection.execute(
-                "INSERT INTO reminders (group_id, creator_id, remind_at, content) VALUES (?, ?, ?, ?)",
-                (group_id, creator_id, int(remind_at.timestamp()), content),
+                "INSERT INTO reminders "
+                "(group_id, creator_id, remind_at, content, repeat_days) VALUES (?, ?, ?, ?, ?)",
+                (group_id, creator_id, int(remind_at.timestamp()), content, repeat_days),
             )
             reminder_id = cursor.lastrowid
-        return Reminder(reminder_id, group_id, creator_id, remind_at, content)
+        return Reminder(reminder_id, group_id, creator_id, remind_at, content, repeat_days)
 
     def list_pending(self, group_id: int) -> list[Reminder]:
         with self._connect() as connection:
@@ -300,12 +319,28 @@ class ReminderStore:
             ).fetchall()
         return [self._from_row(row) for row in rows]
 
-    def complete(self, reminder_id: int) -> bool:
+    def complete(self, reminder_id: int, delivered_at: datetime | None = None) -> bool:
         with self._connect() as connection:
-            cursor = connection.execute(
-                "DELETE FROM reminders WHERE id = ?",
+            row = connection.execute(
+                "SELECT remind_at, repeat_days FROM reminders WHERE id = ?",
                 (reminder_id,),
-            )
+            ).fetchone()
+            if row is None:
+                return False
+            if row["repeat_days"]:
+                next_time = datetime.fromtimestamp(row["remind_at"], CHINA_TIMEZONE)
+                current_time = _normalize_now(delivered_at)
+                while next_time <= current_time:
+                    next_time += timedelta(days=row["repeat_days"])
+                cursor = connection.execute(
+                    "UPDATE reminders SET remind_at = ? WHERE id = ?",
+                    (int(next_time.timestamp()), reminder_id),
+                )
+            else:
+                cursor = connection.execute(
+                    "DELETE FROM reminders WHERE id = ?",
+                    (reminder_id,),
+                )
         return cursor.rowcount > 0
 
 
