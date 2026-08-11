@@ -114,10 +114,20 @@ def test_management_permission(sender_id, role, admin_ids, expected):
     assert has_management_permission(sender_id, role, admin_ids) is expected
 
 
-def test_help_lists_fraud_keyword_commands():
-    assert "@nao 添加违规" in HELP_TEXT
-    assert "@nao 违规词列表" in HELP_TEXT
-    assert "@nao 删除违规词" in HELP_TEXT
+def test_help_only_lists_public_commands():
+    assert HELP_TEXT == """nao 可用指令：
+@nao 帮助 - 查看指令
+
+@nao 表情包制作 - 查看表情模板
+😂+🥺 - 合成两个 Emoji
+@nao 今日人品 - 查看每日人品
+@nao 猜成语 - 开始猜成语游戏
+@nao 人生重开 - 开始人生重开模拟
+@nao 猜人物 - 开始 DeepSeek 猜人物游戏
+@nao 关键词 - 查看关键词库用法"""
+    assert "@nao 状态" not in HELP_TEXT
+    assert "@nao 定时" not in HELP_TEXT
+    assert "@nao 添加违规" not in HELP_TEXT
     assert "/" not in HELP_TEXT
 
 

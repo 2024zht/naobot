@@ -1,38 +1,26 @@
+import re
 from typing import Iterable
 
 
 PROACTIVE_CHECK_INTERVAL_SECONDS = 8
 PROACTIVE_REPLY_COOLDOWN_SECONDS = 45
 
+LINK_PATTERN = re.compile(
+    r"(?:https?|ftp)://|www\.|(?:[a-z0-9-]+\.)+(?:com|net|org|cn|io|me|top|xyz|site|online|cc|tv|app)(?::\d+)?(?:[/\\?#]\S*)?",
+    re.IGNORECASE,
+)
+
 
 HELP_TEXT = """nao 可用指令：
 @nao 帮助 - 查看指令
-@nao 状态 - 检查运行状态
-@nao 关于 - 了解 nao
-@nao 你的问题 - 使用 DeepSeek AI 问答
-@nao 禁言 @成员 [分钟] - 默认禁言 10 分钟
-@nao 踢出 @成员 - 将成员移出群聊
-@nao 撤回 - 回复一条消息后撤回它
-@nao 定时 YYYY-MM-DD HH:MM 内容 - 管理员设置提醒
-@nao 每天晚上九点提醒我写 donelist - 管理员用自然语言创建一次、每天或每周提醒
-@nao 定时任务，本周五 09:00 提醒内容 - 明确创建智能定时任务
-@nao 定时列表 - 管理员查看待发送提醒
-@nao 取消定时 编号 - 管理员取消提醒
+
 @nao 表情包制作 - 查看表情模板
 😂+🥺 - 合成两个 Emoji
 @nao 今日人品 - 查看每日人品
 @nao 猜成语 - 开始猜成语游戏
 @nao 人生重开 - 开始人生重开模拟
 @nao 猜人物 - 开始 DeepSeek 猜人物游戏
-@nao 关键词 - 查看关键词库用法
-@nao 反诈状态 - 查看当前反诈规则
-@nao 反诈记录 @成员 - 查看累计违规次数
-@nao 清除违规 @成员 - 清除误判记录
-@nao 添加违规 内容 - 管理员提取违规词（也可回复消息）
-@nao 违规词列表 - 管理员查看违规词黑名单
-@nao 删除违规词 词条 - 管理员删除违规词
-普通群聊启用小火人模式，会用一到三句主动接梗，陌生或近期梗可联网核实；@nao 模式仍然保留。
-发送“你好”也可以和我打招呼。"""
+@nao 关键词 - 查看关键词库用法"""
 
 COMMAND_REPLIES = {
     "帮助": HELP_TEXT,
@@ -97,8 +85,7 @@ def proactive_message_text(
         or is_tome
         or has_automatic_reply
         or ai_question(stripped, False) is not None
-        or "http://" in lowered
-        or "https://" in lowered
+        or LINK_PATTERN.search(lowered)
     ):
         return None
     return stripped

@@ -23,6 +23,7 @@ from .deepseek import (
     request_reminder_command,
     request_searched_proactive_reply,
 )
+from .faq import FaqStore, format_help_with_faq
 from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_person_turn
 from .image_scan import scan_image_url
 from .keywords import MAX_KEYWORDS, KeywordStore, parse_keyword_command
@@ -51,7 +52,9 @@ from .reminders import (
     parse_reminder_command,
     reminder_command_text,
 )
+from .repeater import RepeatTracker, repeatable_message_text
 from .rules import (
+    HELP_TEXT,
     ai_question,
     command_argument,
     has_management_permission,
@@ -100,6 +103,8 @@ fraud_keyword_store = FraudKeywordStore(
 )
 guess_person_sessions = GuessPersonSessions()
 reminder_store = ReminderStore(Path(os.environ.get("NAO_REMINDERS_FILE", "/data/reminders.sqlite3")))
+faq_store = FaqStore(Path(os.environ.get("NAO_LAB_FAQ_FILE", "/data/lab_faq.json")))
+repeat_tracker = RepeatTracker()
 reminder_scheduler_task: asyncio.Task[None] | None = None
 
 try:
@@ -685,6 +690,30 @@ def is_ai_command(event: GroupMessageEvent) -> bool:
     return ai_question(event.get_plaintext(), event.is_tome()) is not None
 
 
+def faq_answer(event: GroupMessageEvent) -> str | None:
+    if event.data.sender_id == event.self_id or not event.is_tome():
+        return None
+    return faq_store.get(event.get_plaintext().strip())
+
+
+def is_faq_question(event: GroupMessageEvent) -> bool:
+    return faq_answer(event) is not None
+
+
+faq_matcher = on_message(
+    rule=Rule(is_test_group) & Rule(is_faq_question),
+    priority=14,
+    block=True,
+)
+
+
+@faq_matcher.handle()
+async def handle_faq(event: GroupMessageEvent) -> None:
+    answer = faq_answer(event)
+    if answer is not None:
+        await faq_matcher.finish(answer)
+
+
 ai_matcher = on_message(rule=Rule(is_test_group) & Rule(is_ai_command), priority=15, block=True)
 
 
@@ -789,6 +818,8 @@ static_matcher = on_message(
 @static_matcher.handle()
 async def handle_message(event: GroupMessageEvent) -> None:
     response = reply_for_text(event.get_plaintext(), event.is_tome())
+    if response == HELP_TEXT:
+        response = format_help_with_faq(HELP_TEXT, faq_store.questions())
     if response is not None:
         await static_matcher.finish(response)
 
@@ -803,6 +834,53 @@ async def handle_keyword_reply(event: GroupMessageEvent) -> None:
     response = keyword_store.get(event.get_plaintext().strip())
     if response is not None:
         await keyword_reply_matcher.finish(response)
+
+
+def repeater_text(event: GroupMessageEvent) -> str | None:
+    text = event.get_plaintext().strip()
+    has_automatic_reply = (
+        reply_for_text(text, False) is not None or keyword_store.get(text) is not None
+    )
+    message = event.get_message()
+    is_plain_text = bool(message) and all(segment.type == "text" for segment in message)
+    return repeatable_message_text(
+        text,
+        event.is_tome(),
+        event.data.sender_id == event.self_id,
+        has_automatic_reply,
+        is_plain_text,
+        event.reply is not None,
+    )
+
+
+def is_repeater_message(event: GroupMessageEvent) -> bool:
+    return repeater_text(event) is not None
+
+
+repeater_matcher = on_message(
+    rule=Rule(is_test_group) & Rule(is_repeater_message),
+    priority=25,
+    block=False,
+)
+
+
+@repeater_matcher.handle()
+async def handle_repeater(event: GroupMessageEvent, matcher: Matcher) -> None:
+    text = repeater_text(event)
+    if text is None:
+        return
+    now = monotonic()
+    if not repeat_tracker.record(
+        event.data.peer_id,
+        event.data.sender_id,
+        text,
+        now,
+    ):
+        return
+
+    last_proactive_replies[event.data.peer_id] = now
+    matcher.stop_propagation()
+    await repeater_matcher.send(text)
 
 
 def proactive_text(event: GroupMessageEvent) -> str | None:
@@ -851,6 +929,7 @@ async def handle_proactive_message(event: GroupMessageEvent) -> None:
     ):
         return
     last_proactive_checks[group_id] = now
+    repeat_generation = repeat_tracker.generation(group_id)
     proactive_groups_in_flight.add(group_id)
 
     try:
@@ -875,6 +954,8 @@ async def handle_proactive_message(event: GroupMessageEvent) -> None:
     finally:
         proactive_groups_in_flight.discard(group_id)
     if reply is None:
+        return
+    if repeat_generation != repeat_tracker.generation(group_id):
         return
 
     last_proactive_replies[group_id] = monotonic()

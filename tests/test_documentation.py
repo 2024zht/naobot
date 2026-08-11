@@ -83,12 +83,11 @@ def test_reminder_commands_and_storage_are_documented():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     for command in ("@nao 定时 ", "@nao 定时任务", "@nao 定时列表", "@nao 取消定时"):
-        assert command in HELP_TEXT
+        assert command not in HELP_TEXT
         assert command in features
         assert command in readme
     assert "data/reminders.sqlite3" in features
     assert "data/reminders.sqlite3" in readme
-    assert "每天晚上九点" in HELP_TEXT
     assert "一次性、每天和每周" in features
 
 
@@ -96,14 +95,33 @@ def test_proactive_banter_mode_is_documented():
     features = (ROOT / "FEATURES.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "小火人" in HELP_TEXT
+    assert "小火人" not in HELP_TEXT
     assert "小火人" in features
     assert "小火人" in readme
     assert "45 秒" in features
-    assert "一到三句" in HELP_TEXT
+    assert "一到三句" not in HELP_TEXT
     assert "一到三句" in features
     assert "一到三句" in readme
     assert "web_search" in features
     assert "0.65" in features
-    assert "联网" in HELP_TEXT
+    assert "联网" not in HELP_TEXT
     assert "@nao" in features
+
+
+def test_repeater_and_lab_faq_are_configured_and_documented():
+    features = (ROOT / "FEATURES.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
+    example_env = (ROOT / ".env.example").read_text(encoding="utf-8")
+    example_faq = ROOT / "examples" / "lab_faq.example.json"
+
+    assert "30 秒" in features
+    assert "3 名不同成员" in features
+    assert "多人复读" in readme
+    assert "data/lab_faq.json" in features
+    assert "lab_faq.example.json" in readme
+    assert example_faq.is_file()
+    assert "NAO_LAB_FAQ_FILE=" in example_env
+    assert compose["services"]["nao-bot"]["environment"]["NAO_LAB_FAQ_FILE"].startswith(
+        "${NAO_LAB_FAQ_FILE:"
+    )

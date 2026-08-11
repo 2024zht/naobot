@@ -50,6 +50,7 @@ services:
       NAO_MODERATION_FILE: "/data/moderation.json"
       NAO_FRAUD_KEYWORDS_FILE: "/data/fraud_keywords.json"
       NAO_REMINDERS_FILE: "${NAO_REMINDERS_FILE:-/data/reminders.sqlite3}"
+      NAO_LAB_FAQ_FILE: "${NAO_LAB_FAQ_FILE:-/data/lab_faq.json}"
       NAO_REACTION_PACK_ROOT: "${NAO_REACTION_PACK_ROOT:-/data/reaction_packs}"
       NAO_REACTION_CATALOG_FILE: "${NAO_REACTION_CATALOG_FILE:-/data/reaction_catalog.json}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?Set DEEPSEEK_API_KEY in .env}"
