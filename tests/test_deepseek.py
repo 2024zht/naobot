@@ -1,6 +1,8 @@
 import asyncio
 from datetime import datetime
 
+import pytest
+
 import nao_bot.deepseek as deepseek
 from nao_bot.deepseek import (
     AIAnswer,
@@ -77,6 +79,80 @@ def test_parse_ai_response_falls_back_to_text_without_a_reaction():
     answer = parse_ai_response("普通纯文本回答")
 
     assert answer == AIAnswer(text="普通纯文本回答")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "[提醒] 先备份数据。",
+        "{这是一段普通说明}",
+        '请解释一下 "reply": 字段的含义。',
+    ],
+)
+def test_parse_ai_response_preserves_non_json_text_with_brackets(content):
+    assert parse_ai_response(content) == AIAnswer(text=content)
+
+
+def test_parse_ai_response_recovers_reply_with_unescaped_quotes():
+    content = (
+        '{"reply":"哈哈，我只是一串代码，没有手脚可没法真跳舞～不过我可以给你编一段'
+        '"数字之舞"：左三圈右三圈，脖子扭扭屁股扭扭（代码版）！想听舞步解说还是来点音乐推荐？",'
+        '"reaction":{"scene":"开心","context":"playful","confidence":0.9}}'
+    )
+
+    answer = parse_ai_response(content)
+
+    assert answer == AIAnswer(
+        text=(
+            '哈哈，我只是一串代码，没有手脚可没法真跳舞～不过我可以给你编一段'
+            '"数字之舞"：左三圈右三圈，脖子扭扭屁股扭扭（代码版）！想听舞步解说还是来点音乐推荐？'
+        )
+    )
+    assert '"reply"' not in answer.text
+    assert '"reaction"' not in answer.text
+
+
+def test_parse_ai_response_rejects_unrecoverable_structured_output():
+    with pytest.raises(ValueError, match="invalid AI response"):
+        parse_ai_response('{"reply":"无法恢复","reaction":')
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"reaction":{"scene":null},"reply":"foo "bar" baz"}',
+        '说明：{"reply":"foo "bar" baz","reaction":{"scene":null}}',
+        '说明：{"reply"',
+        '{"reply"',
+        "{'reply':'foo','reaction':{}}",
+        '\ufeff{"reply":"foo "bar" baz","reaction":{"scene":null}}',
+        '``` json\n{"reply":"foo "bar" baz","reaction":{"scene":null}}\n```',
+        '{"trace":"SECRET","reply":"foo "bar" baz","reaction":{"scene":null}}',
+        '{reply:"foo "bar" baz",reaction:{scene:null}}',
+        '{"\\u0072eply":"foo "bar" baz"}',
+    ],
+)
+def test_parse_ai_response_rejects_nonstandard_structured_wrappers(content):
+    with pytest.raises(ValueError, match="invalid AI response"):
+        parse_ai_response(content)
+
+
+@pytest.mark.parametrize(
+    "extra_field",
+    [
+        '"trace":"SECRET "oops""',
+        '\'trace\':"SECRET "oops""',
+        'trace:"SECRET "oops""',
+    ],
+)
+def test_parse_ai_response_rejects_ambiguous_extra_fields_during_recovery(extra_field):
+    content = (
+        f'{{"reply":"hello",{extra_field},'
+        '"reaction":{"scene":null,"context":"serious","confidence":0}}'
+    )
+
+    with pytest.raises(ValueError, match="invalid AI response"):
+        parse_ai_response(content)
 
 
 def test_parse_ai_response_accepts_json_with_no_matching_scene():
@@ -165,6 +241,7 @@ def test_ask_deepseek_requests_reply_and_reaction_in_one_json_response(monkeypat
     assert answer.reaction_context == "playful"
     assert requests[0][2]["response_format"] == {"type": "json_object"}
     assert "reaction" in requests[0][2]["messages"][0]["content"]
+    assert "双引号和反斜杠必须按 JSON 规则转义" in requests[0][2]["messages"][0]["content"]
     assert "tools" not in requests[0][2]
 
 

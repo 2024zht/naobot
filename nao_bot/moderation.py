@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-KICK_THRESHOLD = 3
-
 PROTECTED_NOTICE_TERMS = (
     "重要通知",
     "紧急通知",
@@ -226,22 +224,6 @@ def text_from_segments(segments: Iterable[Any]) -> str:
         if segment_type == "text" and data.get("text") is not None:
             parts.append(str(data["text"]))
     return "".join(parts).strip()
-
-
-async def kick_member_with_confirmation(bot: Any, group_id: int, user_id: int) -> None:
-    try:
-        await bot.kick_group_member(group_id=group_id, user_id=user_id)
-        return
-    except Exception as kick_error:
-        try:
-            members = await bot.get_group_member_list(group_id=group_id, no_cache=True)
-        except Exception:
-            raise kick_error
-
-        for member in members:
-            member_id = member.get("user_id") if isinstance(member, dict) else getattr(member, "user_id", None)
-            if int(member_id or 0) == user_id:
-                raise kick_error
 
 
 class ViolationStore:

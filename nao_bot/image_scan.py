@@ -1,7 +1,9 @@
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
 from tempfile import NamedTemporaryFile
+from typing import BinaryIO
 
 import httpx
 from PIL import Image, ImageOps
@@ -24,7 +26,12 @@ _ocr_engine = None
 _scan_lock = asyncio.Lock()
 
 
-async def _download_media(url: str, max_bytes: int, too_large_message: str) -> bytes:
+async def _download_media(
+    url: str,
+    max_bytes: int,
+    too_large_message: str,
+    destination: BinaryIO | None = None,
+) -> bytes:
     timeout = httpx.Timeout(15, connect=5)
     chunks: list[bytes] = []
     size = 0
@@ -38,16 +45,15 @@ async def _download_media(url: str, max_bytes: int, too_large_message: str) -> b
                 size += len(chunk)
                 if size > max_bytes:
                     raise ValueError(too_large_message)
-                chunks.append(chunk)
+                if destination is None:
+                    chunks.append(chunk)
+                else:
+                    destination.write(chunk)
     return b"".join(chunks)
 
 
 async def _download_image(url: str) -> bytes:
     return await _download_media(url, MAX_IMAGE_BYTES, "图片超过 8 MB 限制")
-
-
-async def _download_video(url: str) -> bytes:
-    return await _download_media(url, MAX_VIDEO_BYTES, "视频超过 48 MB 限制")
 
 
 def _prepare_image(data: bytes) -> bytes:
@@ -85,49 +91,61 @@ def _scan_image_bytes(data: bytes) -> ImageScanResult:
     return ImageScanResult(text=text, has_qr_code=qr_points is not None)
 
 
-def _scan_video_bytes(data: bytes) -> ImageScanResult:
+def _scan_video_file(
+    path: str,
+    should_stop: Callable[[ImageScanResult], bool] | None = None,
+) -> ImageScanResult:
     import cv2
 
     texts: list[str] = []
     has_qr_code = False
+    capture = cv2.VideoCapture(path)
+    try:
+        if not capture.isOpened():
+            raise ValueError("无法解析视频")
+        fps = capture.get(cv2.CAP_PROP_FPS)
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if fps <= 0 or frame_count <= 0:
+            raise ValueError("无法读取视频时长")
+
+        timestamp = 0.0
+        frames_scanned = 0
+        while True:
+            frame_index = int(round(timestamp * fps))
+            if frame_index >= frame_count:
+                break
+            capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            success, frame = capture.read()
+            if not success:
+                break
+            encoded, image = cv2.imencode(".png", frame)
+            if not encoded:
+                raise ValueError("无法编码视频帧")
+            frame_result = _scan_image_bytes(image.tobytes())
+            if frame_result.text:
+                texts.append(frame_result.text)
+            has_qr_code = has_qr_code or frame_result.has_qr_code
+            frames_scanned += 1
+            if should_stop is not None and should_stop(frame_result):
+                break
+            timestamp += VIDEO_FRAME_INTERVAL_SECONDS
+
+        if frames_scanned == 0:
+            raise ValueError("视频没有可读取的帧")
+    finally:
+        capture.release()
+
+    return ImageScanResult(text="\n".join(texts), has_qr_code=has_qr_code)
+
+
+def _scan_video_bytes(
+    data: bytes,
+    should_stop: Callable[[ImageScanResult], bool] | None = None,
+) -> ImageScanResult:
     with NamedTemporaryFile(suffix=".mp4") as video_file:
         video_file.write(data)
         video_file.flush()
-        capture = cv2.VideoCapture(video_file.name)
-        try:
-            if not capture.isOpened():
-                raise ValueError("无法解析视频")
-            fps = capture.get(cv2.CAP_PROP_FPS)
-            frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-            if fps <= 0 or frame_count <= 0:
-                raise ValueError("无法读取视频时长")
-
-            timestamp = 0.0
-            frames_scanned = 0
-            while True:
-                frame_index = int(round(timestamp * fps))
-                if frame_index >= frame_count:
-                    break
-                capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-                success, frame = capture.read()
-                if not success:
-                    break
-                encoded, image = cv2.imencode(".png", frame)
-                if not encoded:
-                    raise ValueError("无法编码视频帧")
-                frame_result = _scan_image_bytes(image.tobytes())
-                if frame_result.text:
-                    texts.append(frame_result.text)
-                has_qr_code = has_qr_code or frame_result.has_qr_code
-                frames_scanned += 1
-                timestamp += VIDEO_FRAME_INTERVAL_SECONDS
-
-            if frames_scanned == 0:
-                raise ValueError("视频没有可读取的帧")
-        finally:
-            capture.release()
-
-    return ImageScanResult(text="\n".join(texts), has_qr_code=has_qr_code)
+        return _scan_video_file(video_file.name, should_stop)
 
 
 async def scan_image_url(url: str) -> ImageScanResult:
@@ -136,7 +154,16 @@ async def scan_image_url(url: str) -> ImageScanResult:
         return await asyncio.to_thread(_scan_image_bytes, data)
 
 
-async def scan_video_url(url: str) -> ImageScanResult:
-    data = await _download_video(url)
+async def scan_video_url(
+    url: str,
+    should_stop: Callable[[ImageScanResult], bool] | None = None,
+) -> ImageScanResult:
     async with _scan_lock:
-        return await asyncio.to_thread(_scan_video_bytes, data)
+        with NamedTemporaryFile(suffix=".mp4") as video_file:
+            await _download_media(
+                url,
+                MAX_VIDEO_BYTES,
+                "视频超过 48 MB 限制",
+                video_file,
+            )
+            return await asyncio.to_thread(_scan_video_file, video_file.name, should_stop)

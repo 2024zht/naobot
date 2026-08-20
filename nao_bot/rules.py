@@ -98,21 +98,6 @@ def proactive_check_allowed(now: float, last_check: float, last_reply: float) ->
     )
 
 
-def parse_mute_duration(text: str) -> int | None:
-    argument = command_argument(text, "禁言")
-    if argument is None:
-        return None
-    if not argument:
-        return 10 * 60
-    if not argument.isdecimal():
-        raise ValueError("禁言时间必须是整数分钟")
-
-    minutes = int(argument)
-    if not 0 <= minutes <= 43200:
-        raise ValueError("禁言时间必须在 0 到 43200 分钟之间")
-    return minutes * 60
-
-
 def parse_qq_ids(value: str) -> frozenset[int]:
     if not value.strip():
         return frozenset()

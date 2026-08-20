@@ -6,7 +6,6 @@ from nao_bot.rules import (
     command_argument,
     has_management_permission,
     is_allowed_group,
-    parse_mute_duration,
     parse_qq_ids,
     proactive_check_allowed,
     proactive_message_text,
@@ -72,25 +71,6 @@ def test_command_argument(message, command, expected):
 )
 def test_ai_question(message, is_tome, expected):
     assert ai_question(message, is_tome) == expected
-
-
-@pytest.mark.parametrize(
-    ("message", "expected"),
-    [
-        ("禁言", 600),
-        ("禁言 5", 300),
-        ("禁言 0", 0),
-        ("踢出", None),
-    ],
-)
-def test_parse_mute_duration(message, expected):
-    assert parse_mute_duration(message) == expected
-
-
-@pytest.mark.parametrize("message", ["禁言 十", "禁言 -1", "禁言 43201"])
-def test_invalid_mute_duration(message):
-    with pytest.raises(ValueError):
-        parse_mute_duration(message)
 
 
 def test_parse_qq_ids():

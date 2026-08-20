@@ -54,8 +54,11 @@ def test_scan_video_bytes_ocr_scans_one_frame_every_five_seconds(monkeypatch):
         lambda data: scanned_frames.append(data) or next(scan_results),
     )
 
-    result = image_scan._scan_video_bytes(b"video")
+    result = image_scan._scan_video_bytes(
+        b"video",
+        should_stop=lambda frame: frame.has_qr_code,
+    )
 
-    assert captures[0].positions == [0, 150, 300]
-    assert len(scanned_frames) == 3
-    assert result == image_scan.ImageScanResult("第一帧\n第二帧\n第三帧", True)
+    assert captures[0].positions == [0, 150]
+    assert len(scanned_frames) == 2
+    assert result == image_scan.ImageScanResult("第一帧\n第二帧", True)

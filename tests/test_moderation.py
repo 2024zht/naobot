@@ -1,5 +1,3 @@
-import asyncio
-
 from nao_bot.moderation import (
     FraudKeywordStore,
     ViolationStore,
@@ -8,7 +6,6 @@ from nao_bot.moderation import (
     extract_fallback_keywords,
     filter_fraud_keywords,
     has_contact_card,
-    kick_member_with_confirmation,
     text_from_segments,
 )
 
@@ -30,40 +27,6 @@ def test_fraud_text_detection():
     assert detect_fraud_text(academic_ad) is not None
     assert detect_fraud_text("周末一起打球，有兴趣的群里说一声") is None
     assert detect_fraud_text("我的毕业论文正在准备开题，导师让我先整理参考文献") is None
-
-
-def test_kick_error_is_treated_as_success_when_member_is_gone():
-    class Member:
-        def __init__(self, user_id):
-            self.user_id = user_id
-
-    class Bot:
-        async def kick_group_member(self, **kwargs):
-            raise RuntimeError("API returned -500 after kick")
-
-        async def get_group_member_list(self, **kwargs):
-            return [Member(111), Member(222)]
-
-    asyncio.run(kick_member_with_confirmation(Bot(), 123456789, 987654321))
-
-
-def test_kick_error_is_raised_when_member_remains():
-    class Member:
-        user_id = 987654321
-
-    class Bot:
-        async def kick_group_member(self, **kwargs):
-            raise RuntimeError("kick failed")
-
-        async def get_group_member_list(self, **kwargs):
-            return [Member()]
-
-    try:
-        asyncio.run(kick_member_with_confirmation(Bot(), 123456789, 987654321))
-    except RuntimeError as error:
-        assert str(error) == "kick failed"
-    else:
-        raise AssertionError("kick failure should be raised when the member is still present")
 
 
 def test_contact_card_detection():

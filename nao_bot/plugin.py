@@ -25,18 +25,16 @@ from .deepseek import (
 )
 from .faq import FaqStore, format_help_with_faq
 from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_person_turn
-from .image_scan import scan_image_url, scan_video_url
+from .image_scan import ImageScanResult, scan_image_url, scan_video_url
 from .keywords import MAX_KEYWORDS, KeywordStore, parse_keyword_command
 from .moderation import (
     FraudKeywordStore,
-    KICK_THRESHOLD,
     ViolationStore,
     detect_fraud_text,
     detect_protected_notice,
     extract_fallback_keywords,
     filter_fraud_keywords,
     has_contact_card,
-    kick_member_with_confirmation,
     text_from_segments,
 )
 from .reactions import (
@@ -59,7 +57,6 @@ from .rules import (
     command_argument,
     has_management_permission,
     is_allowed_group,
-    parse_mute_duration,
     parse_qq_ids,
     proactive_check_allowed,
     proactive_message_text,
@@ -143,13 +140,6 @@ def mentioned_user_id(event: GroupMessageEvent) -> int | None:
     )
     reply_sender_id = event.reply.sender_id if event.reply else None
     return select_target_user_id(mentioned_ids, event.self_id, reply_sender_id)
-
-
-def is_management_command(event: GroupMessageEvent) -> bool:
-    text = event.get_plaintext().strip()
-    return event.is_tome() and (
-        text in {"踢出", "撤回"} or command_argument(text, "禁言") is not None
-    )
 
 
 async def can_manage(bot: Bot, event: GroupMessageEvent) -> bool:
@@ -272,7 +262,7 @@ async def handle_moderation_command(bot: Bot, event: GroupMessageEvent) -> None:
     count = violation_store.get_count(group_id, target_id)
     reason = violation_store.get_last_reason(group_id, target_id) or "无"
     await moderation_command_matcher.finish(
-        f"QQ {target_id} 当前累计 {count}/{KICK_THRESHOLD} 次，最近原因：{reason}"
+        f"QQ {target_id} 当前累计 {count} 次，最近原因：{reason}"
     )
 
 
@@ -368,6 +358,15 @@ async def _first_video_url(bot: Bot, event: GroupMessageEvent) -> str | None:
     return await _first_media_url(bot, event, "video")
 
 
+def _video_frame_has_violation(result: ImageScanResult) -> bool:
+    return (
+        result.has_qr_code
+        or fraud_keyword_store.match(result.text) is not None
+        or detect_protected_notice(result.text)
+        or detect_fraud_text(result.text) is not None
+    )
+
+
 async def _detect_violation(bot: Bot, event: GroupMessageEvent) -> str | None:
     if has_contact_card(event.get_message()):
         return "普通成员发送QQ好友或群名片"
@@ -400,7 +399,7 @@ async def _detect_violation(bot: Bot, event: GroupMessageEvent) -> str | None:
     if not video_url:
         return None
     try:
-        video_result = await scan_video_url(video_url)
+        video_result = await scan_video_url(video_url, _video_frame_has_violation)
     except Exception:
         logger.exception("Anti-fraud video scan failed")
         return None
@@ -422,30 +421,11 @@ async def _handle_violation(bot: Bot, event: GroupMessageEvent, reason: str) -> 
         logger.exception("Recall anti-fraud message failed")
 
     count = violation_store.add(group_id, user_id, reason)
-    if count >= KICK_THRESHOLD:
-        try:
-            await kick_member_with_confirmation(bot, group_id, user_id)
-        except Exception:
-            logger.exception("Automatic anti-fraud kick failed")
-            await bot.send_group_message(
-                group_id=group_id,
-                message=f"QQ {user_id} 已累计 {count} 次反诈违规，但自动踢出失败，请检查机器人权限。",
-            )
-            return
-        await bot.send_group_message(
-            group_id=group_id,
-            message=f"QQ {user_id} 因累计 {count} 次反诈违规已被自动移出群聊。最近原因：{reason}",
-        )
-        return
-
     await bot.send_group_message(
         group_id=group_id,
         message=[
             MessageSegment.mention(user_id),
-            MessageSegment.text(
-                f" 该消息已被反诈防护撤回（{reason}）。当前 {count}/{KICK_THRESHOLD} 次，"
-                f"累计 {KICK_THRESHOLD} 次将自动移出群聊。"
-            ),
+            MessageSegment.text(f" 该消息已被反诈防护撤回（{reason}）。当前累计 {count} 次。"),
         ],
     )
 
@@ -584,60 +564,6 @@ async def handle_reminder_command(bot: Bot, event: GroupMessageEvent) -> None:
         f"重复：{repeat_note}\n"
         f"内容：{reminder.content}"
     )
-
-
-management_matcher = on_message(
-    rule=Rule(is_test_group) & Rule(is_management_command),
-    priority=4,
-    block=True,
-)
-
-
-@management_matcher.handle()
-async def handle_management(bot: Bot, event: GroupMessageEvent) -> None:
-    if not await can_manage(bot, event):
-        await management_matcher.finish("你没有使用群管理指令的权限。")
-
-    text = event.get_plaintext().strip()
-    group_id = event.data.peer_id
-    if text == "撤回":
-        if not event.reply:
-            await management_matcher.finish("请回复需要撤回的消息，再发送 @nao 撤回。")
-        try:
-            await bot.recall_group_message(group_id=group_id, message_seq=event.reply.message_seq)
-        except Exception:
-            logger.exception("Recall group message failed")
-            await management_matcher.finish("撤回失败，请确认机器人权限和消息时间。")
-        await management_matcher.finish("已撤回。")
-
-    target_id = mentioned_user_id(event)
-    if target_id is None:
-        await management_matcher.finish("请 @目标成员，或回复目标成员的消息。")
-    if target_id in {event.self_id, event.data.sender_id}:
-        await management_matcher.finish("不能对机器人或你自己执行此操作。")
-
-    if text == "踢出":
-        try:
-            await bot.kick_group_member(group_id=group_id, user_id=target_id)
-        except Exception:
-            logger.exception("Kick group member failed")
-            await management_matcher.finish("踢出失败，请确认机器人权限及目标成员身份。")
-        await management_matcher.finish("已将该成员移出群聊。")
-
-    try:
-        duration = parse_mute_duration(text)
-    except ValueError as error:
-        await management_matcher.finish(str(error))
-    if duration is None:
-        return
-    try:
-        await bot.set_group_member_mute(group_id=group_id, user_id=target_id, duration=duration)
-    except Exception:
-        logger.exception("Mute group member failed")
-        await management_matcher.finish("禁言失败，请确认机器人权限及目标成员身份。")
-    if duration == 0:
-        await management_matcher.finish("已解除禁言。")
-    await management_matcher.finish(f"已禁言 {duration // 60} 分钟。")
 
 
 def is_guess_person_start(event: GroupMessageEvent) -> bool:

@@ -41,9 +41,17 @@ REACTION_SCENES = (
     "好笑",
 )
 REACTION_CONTEXTS = frozenset({"serious", "casual", "playful"})
+MAX_AI_RECOVERY_LENGTH = 12_000
+STRUCTURED_AI_OBJECT = re.compile(
+    r'''\{\s*(?:["']|[A-Za-z_][A-Za-z0-9_-]*\s*:)'''
+)
+EXTRA_AI_FIELD = re.compile(
+    r''',\s*(?:"(?:[^"\\]|\\.)+"|'(?:[^'\\]|\\.)+'|[A-Za-z_][A-Za-z0-9_-]*)\s*:'''
+)
 REACTION_PROMPT = f"""只输出 JSON 对象，不要输出代码围栏或额外文字。
 格式：{{"reply":"给用户的纯文本回答",\
 "reaction":{{"scene":null,"context":"serious","confidence":0.0}}}}
+reply 中的双引号和反斜杠必须按 JSON 规则转义。
 reaction.scene 只能是 null 或以下场景之一：{'、'.join(REACTION_SCENES)}。
 context 只能是 serious、casual、playful：知识解释、求助和严肃话题用 serious；日常聊天用 casual；接梗、玩笑和强烈情绪用 playful。
 confidence 表示表情与整段对话的匹配把握，范围 0 到 1。没有真正贴切的表情时 scene 必须为 null 且 confidence 为 0。
@@ -180,6 +188,96 @@ def _trim_answer(answer: str) -> str:
     return f"{answer[:1500]}\n\n（回答较长，已截断）"
 
 
+def _skip_json_whitespace(text: str, index: int) -> int:
+    while index < len(text) and text[index] in " \t\r\n":
+        index += 1
+    return index
+
+
+def _unescaped_quote_indexes(text: str, start: int):
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == '"' and not escaped:
+            yield index
+        escaped = not escaped if char == "\\" else False
+
+
+def _decode_recovered_reply(raw_reply: str) -> str:
+    repaired: list[str] = []
+    escaped = False
+    repaired_quote = False
+    for char in raw_reply:
+        if char == '"' and not escaped:
+            repaired.append('\\"')
+            repaired_quote = True
+        else:
+            repaired.append(char)
+        escaped = not escaped if char == "\\" else False
+    if not repaired_quote:
+        raise ValueError("DeepSeek returned an invalid AI response")
+    try:
+        reply = json.loads(f'"{"".join(repaired)}"')
+    except json.JSONDecodeError as error:
+        raise ValueError("DeepSeek returned an invalid AI response") from error
+    if not isinstance(reply, str):
+        raise ValueError("DeepSeek returned an invalid AI response")
+    return reply
+
+
+def _recover_malformed_ai_reply(text: str) -> str:
+    if len(text) > MAX_AI_RECOVERY_LENGTH:
+        raise ValueError("DeepSeek returned an invalid AI response")
+    decoder = json.JSONDecoder()
+    index = _skip_json_whitespace(text, 0)
+    if index >= len(text) or text[index] != "{":
+        raise ValueError("DeepSeek returned an invalid AI response")
+    index = _skip_json_whitespace(text, index + 1)
+    try:
+        key, index = decoder.raw_decode(text, index)
+    except json.JSONDecodeError as error:
+        raise ValueError("DeepSeek returned an invalid AI response") from error
+    index = _skip_json_whitespace(text, index)
+    if key != "reply" or index >= len(text) or text[index] != ":":
+        raise ValueError("DeepSeek returned an invalid AI response")
+    index = _skip_json_whitespace(text, index + 1)
+    if index >= len(text) or text[index] != '"':
+        raise ValueError("DeepSeek returned an invalid AI response")
+
+    reply_start = index + 1
+    recovered: list[str] = []
+    for reply_end in _unescaped_quote_indexes(text, reply_start):
+        index = _skip_json_whitespace(text, reply_end + 1)
+        if index >= len(text) or text[index] != ",":
+            continue
+        index = _skip_json_whitespace(text, index + 1)
+        try:
+            reaction_key, index = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            continue
+        index = _skip_json_whitespace(text, index)
+        if reaction_key != "reaction" or index >= len(text) or text[index] != ":":
+            continue
+        index = _skip_json_whitespace(text, index + 1)
+        try:
+            reaction, index = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            continue
+        index = _skip_json_whitespace(text, index)
+        if not isinstance(reaction, dict) or index >= len(text) or text[index] != "}":
+            continue
+        if _skip_json_whitespace(text, index + 1) != len(text):
+            continue
+        raw_reply = text[reply_start:reply_end]
+        if EXTRA_AI_FIELD.search(raw_reply):
+            raise ValueError("DeepSeek returned an invalid AI response")
+        recovered.append(_decode_recovered_reply(raw_reply))
+
+    if len(recovered) != 1:
+        raise ValueError("DeepSeek returned an invalid AI response")
+    return recovered[0]
+
+
 def parse_ai_response(content: str) -> AIAnswer:
     text = content.strip()
     fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
@@ -188,7 +286,15 @@ def parse_ai_response(content: str) -> AIAnswer:
 
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as error:
+        if STRUCTURED_AI_OBJECT.search(text):
+            try:
+                answer = markdown_to_plain_text(_recover_malformed_ai_reply(text))
+            except ValueError as recovery_error:
+                raise ValueError("DeepSeek returned an invalid AI response") from recovery_error
+            if not answer:
+                raise ValueError("DeepSeek returned an empty plain-text response") from error
+            return AIAnswer(text=_trim_answer(answer))
         answer = markdown_to_plain_text(content)
         if not answer:
             raise ValueError("DeepSeek returned an empty plain-text response")
