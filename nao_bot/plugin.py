@@ -338,11 +338,16 @@ async def _first_media_url(
     event: GroupMessageEvent,
     media_type: str,
 ) -> str | None:
-    for segment in event.get_message():
-        if segment.type != media_type or (
-            media_type == "image" and segment.data.get("sub_type") == "sticker"
-        ):
-            continue
+    segments = [
+        segment
+        for segment in event.get_message()
+        if segment.type == media_type
+        and not (media_type == "image" and segment.data.get("sub_type") == "sticker")
+    ]
+    if media_type == "video" and segments:
+        logger.info("Anti-fraud video segment received: count=%d", len(segments))
+
+    for segment in segments:
         if url := segment.data.get("temp_url"):
             return str(url)
         if resource_id := segment.data.get("resource_id"):
@@ -398,11 +403,22 @@ async def _detect_violation(bot: Bot, event: GroupMessageEvent) -> str | None:
     video_url = await _first_video_url(bot, event)
     if not video_url:
         return None
+    scan_started = monotonic()
+    logger.info("Anti-fraud video scan started")
     try:
         video_result = await scan_video_url(video_url, _video_frame_has_violation)
     except Exception:
-        logger.exception("Anti-fraud video scan failed")
+        logger.exception(
+            "Anti-fraud video scan failed after %.2fs",
+            monotonic() - scan_started,
+        )
         return None
+    logger.info(
+        "Anti-fraud video scan completed after %.2fs: qr=%s text_chars=%d",
+        monotonic() - scan_started,
+        video_result.has_qr_code,
+        len(video_result.text),
+    )
     if video_result.has_qr_code:
         return "普通成员发送含二维码的视频"
     if keyword := fraud_keyword_store.match(video_result.text):

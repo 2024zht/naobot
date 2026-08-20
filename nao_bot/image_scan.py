@@ -1,8 +1,10 @@
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
 from tempfile import NamedTemporaryFile
+from time import monotonic
 from typing import BinaryIO
 
 import httpx
@@ -24,6 +26,7 @@ class ImageScanResult:
 
 _ocr_engine = None
 _scan_lock = asyncio.Lock()
+logger = logging.getLogger(__name__)
 
 
 async def _download_media(
@@ -86,9 +89,12 @@ def _scan_image_bytes(data: bytes) -> ImageScanResult:
         raise ValueError("无法解析图片")
 
     _, qr_points, _ = cv2.QRCodeDetector().detectAndDecode(image)
+    if qr_points is not None:
+        return ImageScanResult(text="", has_qr_code=True)
+
     result, _ = _get_ocr_engine()(prepared)
     text = "\n".join(str(item[1]) for item in result or [] if len(item) >= 2)
-    return ImageScanResult(text=text, has_qr_code=qr_points is not None)
+    return ImageScanResult(text=text, has_qr_code=False)
 
 
 def _scan_video_file(
@@ -99,6 +105,9 @@ def _scan_video_file(
 
     texts: list[str] = []
     has_qr_code = False
+    started = monotonic()
+    frames_scanned = 0
+    stopped_early = False
     capture = cv2.VideoCapture(path)
     try:
         if not capture.isOpened():
@@ -109,7 +118,6 @@ def _scan_video_file(
             raise ValueError("无法读取视频时长")
 
         timestamp = 0.0
-        frames_scanned = 0
         while True:
             frame_index = int(round(timestamp * fps))
             if frame_index >= frame_count:
@@ -127,6 +135,7 @@ def _scan_video_file(
             has_qr_code = has_qr_code or frame_result.has_qr_code
             frames_scanned += 1
             if should_stop is not None and should_stop(frame_result):
+                stopped_early = True
                 break
             timestamp += VIDEO_FRAME_INTERVAL_SECONDS
 
@@ -135,6 +144,12 @@ def _scan_video_file(
     finally:
         capture.release()
 
+    logger.info(
+        "Anti-fraud video frames scanned: count=%d elapsed=%.2fs stopped_early=%s",
+        frames_scanned,
+        monotonic() - started,
+        stopped_early,
+    )
     return ImageScanResult(text="\n".join(texts), has_qr_code=has_qr_code)
 
 
@@ -160,10 +175,16 @@ async def scan_video_url(
 ) -> ImageScanResult:
     async with _scan_lock:
         with NamedTemporaryFile(suffix=".mp4") as video_file:
+            download_started = monotonic()
             await _download_media(
                 url,
                 MAX_VIDEO_BYTES,
                 "视频超过 48 MB 限制",
                 video_file,
+            )
+            logger.info(
+                "Anti-fraud video download complete: bytes=%d elapsed=%.2fs",
+                video_file.tell(),
+                monotonic() - download_started,
             )
             return await asyncio.to_thread(_scan_video_file, video_file.name, should_stop)
