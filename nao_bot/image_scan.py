@@ -16,12 +16,19 @@ MAX_IMAGE_PIXELS = 20_000_000
 MAX_IMAGE_SIDE = 1920
 MAX_VIDEO_BYTES = 48 * 1024 * 1024
 VIDEO_FRAME_INTERVAL_SECONDS = 5
+VIDEO_FILE_EXTENSIONS = frozenset(
+    {".3gp", ".avi", ".flv", ".m4v", ".mkv", ".mov", ".mp4", ".ts", ".webm", ".wmv"}
+)
 
 
 @dataclass(frozen=True)
 class ImageScanResult:
     text: str
     has_qr_code: bool
+
+
+def is_video_file_name(file_name: str) -> bool:
+    return file_name.rsplit("/", 1)[-1].lower().endswith(tuple(VIDEO_FILE_EXTENSIONS))
 
 
 _ocr_engine = None

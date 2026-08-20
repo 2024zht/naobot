@@ -4,6 +4,13 @@ from types import SimpleNamespace
 import nao_bot.image_scan as image_scan
 
 
+def test_video_file_name_matches_supported_extensions():
+    assert image_scan.is_video_file_name("宣传视频.MP4") is True
+    assert image_scan.is_video_file_name("/group/files/clip.webm") is True
+    assert image_scan.is_video_file_name("说明文档.pdf") is False
+    assert image_scan.is_video_file_name("") is False
+
+
 def test_scan_image_returns_on_qr_before_ocr(monkeypatch):
     class FakeDetector:
         def detectAndDecode(self, _image):

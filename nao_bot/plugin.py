@@ -25,7 +25,7 @@ from .deepseek import (
 )
 from .faq import FaqStore, format_help_with_faq
 from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_person_turn
-from .image_scan import ImageScanResult, scan_image_url, scan_video_url
+from .image_scan import ImageScanResult, is_video_file_name, scan_image_url, scan_video_url
 from .keywords import MAX_KEYWORDS, KeywordStore, parse_keyword_command
 from .moderation import (
     FraudKeywordStore,
@@ -345,7 +345,7 @@ async def _first_media_url(
         and not (media_type == "image" and segment.data.get("sub_type") == "sticker")
     ]
     if media_type == "video" and segments:
-        logger.info("Anti-fraud video segment received: count=%d", len(segments))
+        logger.info(f"Anti-fraud video segment received: count={len(segments)}")
 
     for segment in segments:
         if url := segment.data.get("temp_url"):
@@ -361,6 +361,24 @@ async def _first_image_url(bot: Bot, event: GroupMessageEvent) -> str | None:
 
 async def _first_video_url(bot: Bot, event: GroupMessageEvent) -> str | None:
     return await _first_media_url(bot, event, "video")
+
+
+async def _first_video_file_url(bot: Bot, event: GroupMessageEvent) -> str | None:
+    segments = [
+        segment
+        for segment in event.get_message()
+        if segment.type == "file" and is_video_file_name(str(segment.data.get("file_name", "")))
+    ]
+    if segments:
+        logger.info(f"Anti-fraud video file segment received: count={len(segments)}")
+
+    for segment in segments:
+        if file_id := segment.data.get("file_id"):
+            return await bot.get_group_file_download_url(
+                group_id=event.data.peer_id,
+                file_id=str(file_id),
+            )
+    return None
 
 
 def _video_frame_has_violation(result: ImageScanResult) -> bool:
@@ -400,24 +418,28 @@ async def _detect_violation(bot: Bot, event: GroupMessageEvent) -> str | None:
             if reason := detect_fraud_text(image_result.text):
                 return reason
 
-    video_url = await _first_video_url(bot, event)
+    try:
+        video_url = await _first_video_url(bot, event)
+        video_source = "video"
+        if not video_url:
+            video_url = await _first_video_file_url(bot, event)
+            video_source = "video_file"
+    except Exception:
+        logger.exception("Anti-fraud video resource lookup failed")
+        return None
     if not video_url:
         return None
     scan_started = monotonic()
-    logger.info("Anti-fraud video scan started")
+    logger.info(f"Anti-fraud video scan started: source={video_source}")
     try:
         video_result = await scan_video_url(video_url, _video_frame_has_violation)
     except Exception:
-        logger.exception(
-            "Anti-fraud video scan failed after %.2fs",
-            monotonic() - scan_started,
-        )
+        logger.exception(f"Anti-fraud video scan failed after {monotonic() - scan_started:.2f}s")
         return None
     logger.info(
-        "Anti-fraud video scan completed after %.2fs: qr=%s text_chars=%d",
-        monotonic() - scan_started,
-        video_result.has_qr_code,
-        len(video_result.text),
+        f"Anti-fraud video scan completed after {monotonic() - scan_started:.2f}s: "
+        f"source={video_source} qr={video_result.has_qr_code} "
+        f"text_chars={len(video_result.text)}"
     )
     if video_result.has_qr_code:
         return "普通成员发送含二维码的视频"
