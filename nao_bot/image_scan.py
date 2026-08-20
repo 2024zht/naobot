@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from io import BytesIO
+from tempfile import NamedTemporaryFile
 
 import httpx
 from PIL import Image, ImageOps
@@ -9,6 +10,8 @@ from PIL import Image, ImageOps
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
 MAX_IMAGE_SIDE = 1920
+MAX_VIDEO_BYTES = 48 * 1024 * 1024
+VIDEO_FRAME_INTERVAL_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -21,7 +24,7 @@ _ocr_engine = None
 _scan_lock = asyncio.Lock()
 
 
-async def _download_image(url: str) -> bytes:
+async def _download_media(url: str, max_bytes: int, too_large_message: str) -> bytes:
     timeout = httpx.Timeout(15, connect=5)
     chunks: list[bytes] = []
     size = 0
@@ -29,14 +32,22 @@ async def _download_image(url: str) -> bytes:
         async with client.stream("GET", url) as response:
             response.raise_for_status()
             content_length = response.headers.get("content-length")
-            if content_length and int(content_length) > MAX_IMAGE_BYTES:
-                raise ValueError("图片超过 8 MB 限制")
+            if content_length and int(content_length) > max_bytes:
+                raise ValueError(too_large_message)
             async for chunk in response.aiter_bytes():
                 size += len(chunk)
-                if size > MAX_IMAGE_BYTES:
-                    raise ValueError("图片超过 8 MB 限制")
+                if size > max_bytes:
+                    raise ValueError(too_large_message)
                 chunks.append(chunk)
     return b"".join(chunks)
+
+
+async def _download_image(url: str) -> bytes:
+    return await _download_media(url, MAX_IMAGE_BYTES, "图片超过 8 MB 限制")
+
+
+async def _download_video(url: str) -> bytes:
+    return await _download_media(url, MAX_VIDEO_BYTES, "视频超过 48 MB 限制")
 
 
 def _prepare_image(data: bytes) -> bytes:
@@ -74,7 +85,58 @@ def _scan_image_bytes(data: bytes) -> ImageScanResult:
     return ImageScanResult(text=text, has_qr_code=qr_points is not None)
 
 
+def _scan_video_bytes(data: bytes) -> ImageScanResult:
+    import cv2
+
+    texts: list[str] = []
+    has_qr_code = False
+    with NamedTemporaryFile(suffix=".mp4") as video_file:
+        video_file.write(data)
+        video_file.flush()
+        capture = cv2.VideoCapture(video_file.name)
+        try:
+            if not capture.isOpened():
+                raise ValueError("无法解析视频")
+            fps = capture.get(cv2.CAP_PROP_FPS)
+            frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            if fps <= 0 or frame_count <= 0:
+                raise ValueError("无法读取视频时长")
+
+            timestamp = 0.0
+            frames_scanned = 0
+            while True:
+                frame_index = int(round(timestamp * fps))
+                if frame_index >= frame_count:
+                    break
+                capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+                success, frame = capture.read()
+                if not success:
+                    break
+                encoded, image = cv2.imencode(".png", frame)
+                if not encoded:
+                    raise ValueError("无法编码视频帧")
+                frame_result = _scan_image_bytes(image.tobytes())
+                if frame_result.text:
+                    texts.append(frame_result.text)
+                has_qr_code = has_qr_code or frame_result.has_qr_code
+                frames_scanned += 1
+                timestamp += VIDEO_FRAME_INTERVAL_SECONDS
+
+            if frames_scanned == 0:
+                raise ValueError("视频没有可读取的帧")
+        finally:
+            capture.release()
+
+    return ImageScanResult(text="\n".join(texts), has_qr_code=has_qr_code)
+
+
 async def scan_image_url(url: str) -> ImageScanResult:
     data = await _download_image(url)
     async with _scan_lock:
         return await asyncio.to_thread(_scan_image_bytes, data)
+
+
+async def scan_video_url(url: str) -> ImageScanResult:
+    data = await _download_video(url)
+    async with _scan_lock:
+        return await asyncio.to_thread(_scan_video_bytes, data)

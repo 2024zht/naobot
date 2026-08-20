@@ -25,7 +25,7 @@ from .deepseek import (
 )
 from .faq import FaqStore, format_help_with_faq
 from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_person_turn
-from .image_scan import scan_image_url
+from .image_scan import scan_image_url, scan_video_url
 from .keywords import MAX_KEYWORDS, KeywordStore, parse_keyword_command
 from .moderation import (
     FraudKeywordStore,
@@ -255,8 +255,7 @@ async def handle_moderation_command(bot: Bot, event: GroupMessageEvent) -> None:
     text = event.get_plaintext().strip()
     if text == "反诈状态":
         await moderation_command_matcher.finish(
-            "反诈防护已开启：普通成员的重要通知、诈骗话术、QQ名片、二维码和诈骗图片会被撤回；"
-            f"累计 {KICK_THRESHOLD} 次自动踢出。"
+            "反诈防护已开启：普通成员的重要通知、诈骗话术、QQ名片、二维码以及图片和视频中的诈骗内容会被撤回并累计违规记录。"
         )
 
     command = "反诈记录" if command_argument(text, "反诈记录") is not None else "清除违规"
@@ -344,15 +343,29 @@ async def handle_fraud_keyword_management(bot: Bot, event: GroupMessageEvent) ->
     await fraud_keyword_management_matcher.finish(f"已添加违规词（{len(added)}）：{'、'.join(added)}")
 
 
-async def _first_image_url(bot: Bot, event: GroupMessageEvent) -> str | None:
+async def _first_media_url(
+    bot: Bot,
+    event: GroupMessageEvent,
+    media_type: str,
+) -> str | None:
     for segment in event.get_message():
-        if segment.type != "image" or segment.data.get("sub_type") == "sticker":
+        if segment.type != media_type or (
+            media_type == "image" and segment.data.get("sub_type") == "sticker"
+        ):
             continue
         if url := segment.data.get("temp_url"):
             return str(url)
         if resource_id := segment.data.get("resource_id"):
             return await bot.get_resource_temp_url(resource_id=str(resource_id))
     return None
+
+
+async def _first_image_url(bot: Bot, event: GroupMessageEvent) -> str | None:
+    return await _first_media_url(bot, event, "image")
+
+
+async def _first_video_url(bot: Bot, event: GroupMessageEvent) -> str | None:
+    return await _first_media_url(bot, event, "video")
 
 
 async def _detect_violation(bot: Bot, event: GroupMessageEvent) -> str | None:
@@ -368,20 +381,36 @@ async def _detect_violation(bot: Bot, event: GroupMessageEvent) -> str | None:
         return reason
 
     image_url = await _first_image_url(bot, event)
-    if not image_url:
+    if image_url:
+        try:
+            image_result = await scan_image_url(image_url)
+        except Exception:
+            logger.exception("Anti-fraud image scan failed")
+        else:
+            if image_result.has_qr_code:
+                return "普通成员发送二维码图片"
+            if keyword := fraud_keyword_store.match(image_result.text):
+                return f"图片命中违规词黑名单（{keyword}）"
+            if detect_protected_notice(image_result.text):
+                return "普通成员通过图片冒充重要通知或公告"
+            if reason := detect_fraud_text(image_result.text):
+                return reason
+
+    video_url = await _first_video_url(bot, event)
+    if not video_url:
         return None
     try:
-        image_result = await scan_image_url(image_url)
+        video_result = await scan_video_url(video_url)
     except Exception:
-        logger.exception("Anti-fraud image scan failed")
+        logger.exception("Anti-fraud video scan failed")
         return None
-    if image_result.has_qr_code:
-        return "普通成员发送二维码图片"
-    if keyword := fraud_keyword_store.match(image_result.text):
-        return f"图片命中违规词黑名单（{keyword}）"
-    if detect_protected_notice(image_result.text):
-        return "普通成员通过图片冒充重要通知或公告"
-    return detect_fraud_text(image_result.text)
+    if video_result.has_qr_code:
+        return "普通成员发送含二维码的视频"
+    if keyword := fraud_keyword_store.match(video_result.text):
+        return f"视频命中违规词黑名单（{keyword}）"
+    if detect_protected_notice(video_result.text):
+        return "普通成员通过视频冒充重要通知或公告"
+    return detect_fraud_text(video_result.text)
 
 
 async def _handle_violation(bot: Bot, event: GroupMessageEvent, reason: str) -> None:
