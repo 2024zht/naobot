@@ -1,4 +1,7 @@
+import pytest
+
 from nao_bot.moderation import (
+    AUTO_KICK_VIOLATION_THRESHOLD,
     FraudKeywordStore,
     ViolationStore,
     detect_fraud_text,
@@ -6,8 +9,23 @@ from nao_bot.moderation import (
     extract_fallback_keywords,
     filter_fraud_keywords,
     has_contact_card,
+    should_auto_kick,
     text_from_segments,
 )
+
+
+@pytest.mark.parametrize(
+    ("count", "target_role", "bot_role", "expected"),
+    [
+        (AUTO_KICK_VIOLATION_THRESHOLD - 1, "member", "admin", False),
+        (AUTO_KICK_VIOLATION_THRESHOLD, "member", "admin", True),
+        (AUTO_KICK_VIOLATION_THRESHOLD, "admin", "owner", False),
+        (AUTO_KICK_VIOLATION_THRESHOLD, "member", "member", False),
+        (AUTO_KICK_VIOLATION_THRESHOLD, None, "admin", False),
+    ],
+)
+def test_auto_kick_requires_threshold_and_safe_roles(count, target_role, bot_role, expected):
+    assert should_auto_kick(count, target_role, bot_role) is expected
 
 
 def test_protected_notice_detection():

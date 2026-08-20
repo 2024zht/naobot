@@ -28,6 +28,7 @@ from .guess_person import GuessPersonSessions, VALID_ANSWERS, request_guess_pers
 from .image_scan import ImageScanResult, is_video_file_name, scan_image_url, scan_video_url
 from .keywords import MAX_KEYWORDS, KeywordStore, parse_keyword_command
 from .moderation import (
+    AUTO_KICK_VIOLATION_THRESHOLD,
     FraudKeywordStore,
     ViolationStore,
     detect_fraud_text,
@@ -35,6 +36,7 @@ from .moderation import (
     extract_fallback_keywords,
     filter_fraud_keywords,
     has_contact_card,
+    should_auto_kick,
     text_from_segments,
 )
 from .reactions import (
@@ -450,6 +452,31 @@ async def _detect_violation(bot: Bot, event: GroupMessageEvent) -> str | None:
     return detect_fraud_text(video_result.text)
 
 
+async def _try_auto_kick(bot: Bot, event: GroupMessageEvent, count: int) -> bool:
+    group_id = event.data.peer_id
+    user_id = event.data.sender_id
+    try:
+        target = await bot.get_group_member_info(group_id=group_id, user_id=user_id, no_cache=True)
+        bot_member = await bot.get_group_member_info(group_id=group_id, user_id=event.self_id, no_cache=True)
+    except Exception:
+        logger.exception("Auto-kick permission check failed")
+        return False
+
+    if not should_auto_kick(count, target.role, bot_member.role):
+        logger.warning(
+            f"Auto-kick skipped: count={count} target_role={target.role} bot_role={bot_member.role}"
+        )
+        return False
+
+    try:
+        await bot.kick_group_member(group_id=group_id, user_id=user_id)
+    except Exception:
+        logger.exception("Auto-kick anti-fraud member failed")
+        return False
+    logger.warning(f"Auto-kick anti-fraud member completed: count={count}")
+    return True
+
+
 async def _handle_violation(bot: Bot, event: GroupMessageEvent, reason: str) -> None:
     group_id = event.data.peer_id
     user_id = event.data.sender_id
@@ -459,11 +486,21 @@ async def _handle_violation(bot: Bot, event: GroupMessageEvent, reason: str) -> 
         logger.exception("Recall anti-fraud message failed")
 
     count = violation_store.add(group_id, user_id, reason)
+    kicked = await _try_auto_kick(bot, event, count) if count >= AUTO_KICK_VIOLATION_THRESHOLD else False
+    action = (
+        f" 已达到第 {AUTO_KICK_VIOLATION_THRESHOLD} 次违规，已移出群聊。"
+        if kicked
+        else (
+            f" 已达到第 {AUTO_KICK_VIOLATION_THRESHOLD} 次违规，但当前未执行自动踢出，请管理员处理。"
+            if count >= AUTO_KICK_VIOLATION_THRESHOLD
+            else ""
+        )
+    )
     await bot.send_group_message(
         group_id=group_id,
         message=[
             MessageSegment.mention(user_id),
-            MessageSegment.text(f" 该消息已被反诈防护撤回（{reason}）。当前累计 {count} 次。"),
+            MessageSegment.text(f" 该消息已被反诈防护撤回（{reason}）。当前累计 {count} 次。{action}"),
         ],
     )
 

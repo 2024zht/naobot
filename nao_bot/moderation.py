@@ -75,6 +75,8 @@ FALLBACK_FRAUD_PHRASES = (
     "做任务",
 )
 
+AUTO_KICK_VIOLATION_THRESHOLD = 3
+
 CONTACT_KEYWORD_PATTERN = re.compile(
     r"(?:微信|vx|v信|qq)(?:号|群)?\s*[:：+]?\s*[a-z0-9_-]{5,20}",
     re.IGNORECASE,
@@ -193,6 +195,14 @@ def detect_fraud_text(text: str) -> str | None:
     if len(matched) >= 2:
         return f"疑似诈骗广告（{'、'.join(matched)}）"
     return None
+
+
+def should_auto_kick(violation_count: int, target_role: str | None, bot_role: str | None) -> bool:
+    return (
+        violation_count >= AUTO_KICK_VIOLATION_THRESHOLD
+        and target_role == "member"
+        and bot_role in {"admin", "owner"}
+    )
 
 
 def _segment_parts(segment: Any) -> tuple[str, dict[str, Any]]:
