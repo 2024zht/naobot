@@ -1,14 +1,37 @@
+import asyncio
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import nao_bot.image_scan as image_scan
 
 
 def test_video_file_name_matches_supported_extensions():
+    for extension in ("mp4", "mov", "m4v", "mkv", "webm", "avi", "flv", "wmv", "3gp", "ts"):
+        assert image_scan.is_video_file_name(f"/group/files/clip.{extension}") is True
     assert image_scan.is_video_file_name("宣传视频.MP4") is True
-    assert image_scan.is_video_file_name("/group/files/clip.webm") is True
     assert image_scan.is_video_file_name("说明文档.pdf") is False
     assert image_scan.is_video_file_name("") is False
+
+
+def test_scan_video_url_removes_downloaded_video_after_scan(monkeypatch):
+    paths = []
+
+    async def fake_download(_url, _max_bytes, _too_large_message, destination):
+        paths.append(destination.name)
+        destination.write(b"video")
+
+    def fake_scan(path, _should_stop=None):
+        assert Path(path).exists()
+        return image_scan.ImageScanResult("", False)
+
+    monkeypatch.setattr(image_scan, "_download_media", fake_download)
+    monkeypatch.setattr(image_scan, "_scan_video_file", fake_scan)
+
+    result = asyncio.run(image_scan.scan_video_url("https://example.invalid/video.mp4"))
+
+    assert result == image_scan.ImageScanResult("", False)
+    assert paths and not Path(paths[0]).exists()
 
 
 def test_scan_image_returns_on_qr_before_ocr(monkeypatch):

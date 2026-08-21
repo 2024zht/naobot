@@ -9,7 +9,7 @@ import httpx
 from nonebot import get_bots, get_driver, logger, on_message, on_notice
 from nonebot.adapters import Event
 from nonebot.adapters.milky import Bot, Message, MessageSegment
-from nonebot.adapters.milky.event import GroupMemberIncreaseEvent, GroupMessageEvent
+from nonebot.adapters.milky.event import GroupFileUploadEvent, GroupMemberIncreaseEvent, GroupMessageEvent
 from nonebot.adapters.milky.exception import NetworkError
 from nonebot.exception import IgnoredException
 from nonebot.matcher import Matcher
@@ -147,9 +147,24 @@ def mentioned_user_id(event: GroupMessageEvent) -> int | None:
 async def can_manage(bot: Bot, event: GroupMessageEvent) -> bool:
     role = sender_role(event)
     if role is None and not ADMIN_QQ_IDS:
-        member = await bot.get_group_member_info(group_id=event.data.peer_id, user_id=event.data.sender_id)
+        member = await bot.get_group_member_info(
+            group_id=event.data.peer_id,
+            user_id=event.data.sender_id,
+            no_cache=True,
+        )
         role = member.role
     return has_management_permission(event.data.sender_id, role, ADMIN_QQ_IDS)
+
+
+async def can_manage_group_file(bot: Bot, event: GroupFileUploadEvent) -> bool:
+    if ADMIN_QQ_IDS:
+        return event.data.user_id in ADMIN_QQ_IDS
+    member = await bot.get_group_member_info(
+        group_id=event.data.group_id,
+        user_id=event.data.user_id,
+        no_cache=True,
+    )
+    return has_management_permission(event.data.user_id, member.role, ADMIN_QQ_IDS)
 
 
 async def _send_due_reminders() -> None:
@@ -383,6 +398,16 @@ async def _first_video_file_url(bot: Bot, event: GroupMessageEvent) -> str | Non
     return None
 
 
+def _video_violation_reason(video_result: ImageScanResult) -> str | None:
+    if video_result.has_qr_code:
+        return "普通成员发送含二维码的视频"
+    if keyword := fraud_keyword_store.match(video_result.text):
+        return f"视频命中违规词黑名单（{keyword}）"
+    if detect_protected_notice(video_result.text):
+        return "普通成员通过视频冒充重要通知或公告"
+    return detect_fraud_text(video_result.text)
+
+
 def _video_frame_has_violation(result: ImageScanResult) -> bool:
     return (
         result.has_qr_code
@@ -443,21 +468,13 @@ async def _detect_violation(bot: Bot, event: GroupMessageEvent) -> str | None:
         f"source={video_source} qr={video_result.has_qr_code} "
         f"text_chars={len(video_result.text)}"
     )
-    if video_result.has_qr_code:
-        return "普通成员发送含二维码的视频"
-    if keyword := fraud_keyword_store.match(video_result.text):
-        return f"视频命中违规词黑名单（{keyword}）"
-    if detect_protected_notice(video_result.text):
-        return "普通成员通过视频冒充重要通知或公告"
-    return detect_fraud_text(video_result.text)
+    return _video_violation_reason(video_result)
 
 
-async def _try_auto_kick(bot: Bot, event: GroupMessageEvent, count: int) -> bool:
-    group_id = event.data.peer_id
-    user_id = event.data.sender_id
+async def _try_auto_kick(bot: Bot, group_id: int, user_id: int, bot_id: int, count: int) -> bool:
     try:
         target = await bot.get_group_member_info(group_id=group_id, user_id=user_id, no_cache=True)
-        bot_member = await bot.get_group_member_info(group_id=group_id, user_id=event.self_id, no_cache=True)
+        bot_member = await bot.get_group_member_info(group_id=group_id, user_id=bot_id, no_cache=True)
     except Exception:
         logger.exception("Auto-kick permission check failed")
         return False
@@ -477,16 +494,27 @@ async def _try_auto_kick(bot: Bot, event: GroupMessageEvent, count: int) -> bool
     return True
 
 
-async def _handle_violation(bot: Bot, event: GroupMessageEvent, reason: str) -> None:
-    group_id = event.data.peer_id
-    user_id = event.data.sender_id
-    try:
-        await bot.recall_group_message(group_id=group_id, message_seq=event.data.message_seq)
-    except Exception:
-        logger.exception("Recall anti-fraud message failed")
+async def _record_violation(
+    bot: Bot,
+    group_id: int,
+    user_id: int,
+    bot_id: int,
+    reason: str,
+    message_seq: int | None = None,
+    message_action: str = "撤回",
+) -> None:
+    if message_seq is not None:
+        try:
+            await bot.recall_group_message(group_id=group_id, message_seq=message_seq)
+        except Exception:
+            logger.exception("Recall anti-fraud message failed")
 
     count = violation_store.add(group_id, user_id, reason)
-    kicked = await _try_auto_kick(bot, event, count) if count >= AUTO_KICK_VIOLATION_THRESHOLD else False
+    kicked = (
+        await _try_auto_kick(bot, group_id, user_id, bot_id, count)
+        if count >= AUTO_KICK_VIOLATION_THRESHOLD
+        else False
+    )
     action = (
         f" 已达到第 {AUTO_KICK_VIOLATION_THRESHOLD} 次违规，已移出群聊。"
         if kicked
@@ -500,8 +528,19 @@ async def _handle_violation(bot: Bot, event: GroupMessageEvent, reason: str) -> 
         group_id=group_id,
         message=[
             MessageSegment.mention(user_id),
-            MessageSegment.text(f" 该消息已被反诈防护撤回（{reason}）。当前累计 {count} 次。{action}"),
+            MessageSegment.text(f" 该消息已被反诈防护{message_action}（{reason}）。当前累计 {count} 次。{action}"),
         ],
+    )
+
+
+async def _handle_violation(bot: Bot, event: GroupMessageEvent, reason: str) -> None:
+    await _record_violation(
+        bot,
+        group_id=event.data.peer_id,
+        user_id=event.data.sender_id,
+        bot_id=event.self_id,
+        reason=reason,
+        message_seq=event.data.message_seq,
     )
 
 
@@ -517,6 +556,71 @@ async def handle_moderation(bot: Bot, event: GroupMessageEvent, matcher: Matcher
         return
     await _handle_violation(bot, event, reason)
     matcher.stop_propagation()
+
+
+def is_group_file_upload(event: Event) -> bool:
+    return isinstance(event, GroupFileUploadEvent)
+
+
+file_moderation_matcher = on_notice(rule=Rule(is_group_file_upload), priority=2, block=False)
+
+
+@file_moderation_matcher.handle()
+async def handle_group_file_upload(bot: Bot, event: GroupFileUploadEvent) -> None:
+    if not is_allowed_group(event.data.group_id, TEST_GROUP_ID):
+        return
+    if event.data.user_id == event.self_id or not is_video_file_name(event.data.file_name):
+        return
+
+    try:
+        if await can_manage_group_file(bot, event):
+            return
+    except Exception:
+        logger.exception("Anti-fraud group file permission check failed")
+        return
+
+    scan_started = monotonic()
+    logger.info(
+        f"Anti-fraud group video file scan started: name={event.data.file_name} "
+        f"size={event.data.file_size}"
+    )
+    try:
+        video_url = await bot.get_group_file_download_url(
+            group_id=event.data.group_id,
+            file_id=event.data.file_id,
+        )
+        video_result = await scan_video_url(video_url, _video_frame_has_violation)
+    except Exception:
+        logger.exception(
+            f"Anti-fraud group video file scan failed after {monotonic() - scan_started:.2f}s"
+        )
+        return
+    finally:
+        try:
+            await bot.delete_group_file(
+                group_id=event.data.group_id,
+                file_id=event.data.file_id,
+            )
+            logger.info(f"Anti-fraud group video file deleted: name={event.data.file_name}")
+        except Exception:
+            logger.exception("Anti-fraud group video file deletion failed")
+
+    logger.info(
+        f"Anti-fraud group video file scan completed after {monotonic() - scan_started:.2f}s: "
+        f"qr={video_result.has_qr_code} text_chars={len(video_result.text)}"
+    )
+    reason = _video_violation_reason(video_result)
+    if reason is None:
+        return
+
+    await _record_violation(
+        bot,
+        group_id=event.data.group_id,
+        user_id=event.data.user_id,
+        bot_id=event.self_id,
+        reason=reason,
+        message_action="删除",
+    )
 
 
 def is_keyword_command(event: GroupMessageEvent) -> bool:
