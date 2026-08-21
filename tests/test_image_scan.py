@@ -14,6 +14,15 @@ def test_video_file_name_matches_supported_extensions():
     assert image_scan.is_video_file_name("") is False
 
 
+def test_first_video_file_id_ignores_non_video_files():
+    segments = [
+        SimpleNamespace(type="file", data={"file_id": "document", "file_name": "说明.pdf"}),
+        SimpleNamespace(type="file", data={"file_id": "video-123", "file_name": "clip.mp4"}),
+    ]
+
+    assert image_scan.first_video_file_id(segments) == "video-123"
+
+
 def test_scan_video_url_removes_downloaded_video_after_scan(monkeypatch):
     paths = []
 

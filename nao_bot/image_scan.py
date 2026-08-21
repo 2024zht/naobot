@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from io import BytesIO
 from tempfile import NamedTemporaryFile
@@ -29,6 +29,18 @@ class ImageScanResult:
 
 def is_video_file_name(file_name: str) -> bool:
     return file_name.rsplit("/", 1)[-1].lower().endswith(tuple(VIDEO_FILE_EXTENSIONS))
+
+
+def first_video_file_id(segments: Iterable[object]) -> str | None:
+    for segment in segments:
+        if getattr(segment, "type", "") != "file":
+            continue
+        data = getattr(segment, "data", {})
+        if not isinstance(data, dict) or not is_video_file_name(str(data.get("file_name", ""))):
+            continue
+        if file_id := data.get("file_id"):
+            return str(file_id)
+    return None
 
 
 _ocr_engine = None
