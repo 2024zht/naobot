@@ -65,6 +65,7 @@ from .rules import (
     command_argument,
     has_management_permission,
     is_allowed_group,
+    parse_group_ids,
     parse_qq_ids,
     proactive_check_allowed,
     proactive_message_text,
@@ -74,7 +75,7 @@ from .rules import (
 
 
 try:
-    TEST_GROUP_ID = int(os.environ["NAO_TEST_GROUP_ID"])
+    TEST_GROUP_ID = parse_group_ids(os.environ["NAO_TEST_GROUP_ID"])
 except (KeyError, ValueError) as error:
     raise RuntimeError("NAO_TEST_GROUP_ID must be a valid QQ group number") from error
 
@@ -173,6 +174,9 @@ async def can_manage_group_file(bot: Bot, event: GroupFileUploadEvent) -> bool:
     return has_management_permission(event.data.user_id, member.role, ADMIN_QQ_IDS)
 
 
+_reminder_failure_tracker: dict[int, tuple[int, float]] = {}
+
+
 async def _send_due_reminders() -> None:
     bot = next(
         (connected_bot for connected_bot in get_bots().values() if isinstance(connected_bot, Bot)),
@@ -180,18 +184,32 @@ async def _send_due_reminders() -> None:
     )
     if bot is None:
         return
-    for reminder in reminder_store.due(datetime.now(CHINA_TIMEZONE)):
+    now = datetime.now(CHINA_TIMEZONE)
+    now_ts = now.timestamp()
+    for reminder in reminder_store.due(now):
+        failure_info = _reminder_failure_tracker.get(reminder.id)
+        if failure_info and now_ts < failure_info[1]:
+            continue
+
         try:
             await bot.send_group_message(
                 group_id=reminder.group_id,
                 message=[
                     MessageSegment.mention(reminder.creator_id),
-                    MessageSegment.text(f" 定时提醒（任务 #{reminder.id}）：\n{reminder.content}"),
+                    MessageSegment.text(f" ??????? #{reminder.id}??\n{reminder.content}"),
                 ],
             )
         except Exception:
-            logger.exception(f"Scheduled reminder delivery failed for task {reminder.id}")
-            continue
+            fails = (failure_info[0] + 1) if failure_info else 1
+            backoff_sec = 60 if fails == 1 else (300 if fails == 2 else 1800)
+            _reminder_failure_tracker[reminder.id] = (fails, now_ts + backoff_sec)
+            logger.exception(
+                f"Scheduled reminder delivery failed for task {reminder.id} "
+                f"(failure #{fails}, next retry in {backoff_sec}s)"
+            )
+            break
+
+        _reminder_failure_tracker.pop(reminder.id, None)
         reminder_store.complete(reminder.id, datetime.now(CHINA_TIMEZONE))
 
 
@@ -1088,13 +1106,18 @@ async def handle_proactive_message(event: GroupMessageEvent) -> None:
         )
         reply = decision.reply
         if decision.search_query:
-            reply = await request_searched_proactive_reply(
-                DEEPSEEK_API_KEY,
-                DEEPSEEK_MODEL,
-                context,
-                text,
-                decision.search_query,
-            )
+            try:
+                searched_reply = await request_searched_proactive_reply(
+                    DEEPSEEK_API_KEY,
+                    DEEPSEEK_MODEL,
+                    context,
+                    text,
+                    decision.search_query,
+                )
+                if searched_reply:
+                    reply = searched_reply
+            except Exception:
+                logger.warning("Searched proactive reply failed, falling back to direct reply")
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         logger.exception("DeepSeek proactive reply request failed")
         return
@@ -1106,6 +1129,45 @@ async def handle_proactive_message(event: GroupMessageEvent) -> None:
         return
 
     last_proactive_replies[group_id] = monotonic()
+
+    reaction_scene = decision.reaction_scene or "好笑"
+    reaction_asset = None
+    try:
+        reaction_catalog.sync()
+        catalog_assets = reaction_catalog.assets_for_scene(reaction_scene)
+        reaction_asset = select_reaction_asset(
+            reaction_scene,
+            "playful",
+            0.9,
+            REACTION_ASSET_DIR,
+            catalog_assets,
+            recent_assets=recent_reactions.get(group_id, ()),
+        )
+    except Exception:
+        logger.exception("Proactive reaction selection failed")
+
+    if reaction_asset:
+        history = recent_reactions.setdefault(
+            group_id,
+            deque(maxlen=REACTION_HISTORY_SIZE),
+        )
+        history.append(reaction_asset)
+        try:
+            await proactive_matcher.send(
+                Message(
+                    [
+                        MessageSegment.text(reply),
+                        MessageSegment.image(
+                            base64=reaction_image_base64(reaction_asset),
+                            sub_type="sticker",
+                        ),
+                    ]
+                )
+            )
+            return
+        except Exception:
+            logger.exception("Proactive reaction sticker send failed; falling back to text")
+
     await proactive_matcher.send(reply)
 
 
@@ -1114,7 +1176,7 @@ welcome_matcher = on_notice(priority=10, block=False)
 
 @welcome_matcher.handle()
 async def welcome_member(bot: Bot, event: GroupMemberIncreaseEvent) -> None:
-    if event.data.group_id != TEST_GROUP_ID or event.data.user_id == event.self_id:
+    if not is_allowed_group(event.data.group_id, TEST_GROUP_ID) or event.data.user_id == event.self_id:
         return
     await bot.send_group_message(
         group_id=event.data.group_id,

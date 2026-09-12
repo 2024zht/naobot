@@ -143,5 +143,5 @@ def test_proactive_message_keeps_mention_mode_separate(
 
 def test_proactive_check_respects_request_and_reply_cooldowns():
     assert proactive_check_allowed(100, last_check=90, last_reply=50) is True
-    assert proactive_check_allowed(100, last_check=95, last_reply=0) is False
-    assert proactive_check_allowed(100, last_check=0, last_reply=70) is False
+    assert proactive_check_allowed(100, last_check=96, last_reply=0) is False
+    assert proactive_check_allowed(100, last_check=0, last_reply=80) is False

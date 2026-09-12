@@ -50,11 +50,11 @@ EXTRA_AI_FIELD = re.compile(
 )
 REACTION_PROMPT = f"""只输出 JSON 对象，不要输出代码围栏或额外文字。
 格式：{{"reply":"给用户的纯文本回答",\
-"reaction":{{"scene":null,"context":"serious","confidence":0.0}}}}
+"reaction":{{"scene":"好笑","context":"casual","confidence":0.85}}}}
 reply 中的双引号和反斜杠必须按 JSON 规则转义。
 reaction.scene 只能是 null 或以下场景之一：{'、'.join(REACTION_SCENES)}。
+日常聊天、闲聊、吐槽、开玩笑、幽默或情绪回复时，应积极给出最贴切的情绪场景（如开心、好笑、摸鱼、吃瓜、无语、委屈、阴阳怪气等），并给 context="casual" 或 "playful"，confidence=0.8-0.95。只有纯技术问答或严肃知识解释等完全没有情绪的场景时，scene 才为 null 且 confidence 为 0。
 context 只能是 serious、casual、playful：知识解释、求助和严肃话题用 serious；日常聊天用 casual；接梗、玩笑和强烈情绪用 playful。
-confidence 表示表情与整段对话的匹配把握，范围 0 到 1。没有真正贴切的表情时 scene 必须为 null 且 confidence 为 0。
 不要为了发表情而改变回答内容。"""
 TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 HORIZONTAL_RULE = re.compile(r"^\s*(?:[-*_]\s*){3,}$")
@@ -63,18 +63,20 @@ FRAUD_KEYWORD_PROMPT = """从用户提供的违规广告原文中提取 3 到 8 
 不要提取“微信”“论文”“服务”“联系”“通知”等单独出现时可能正常的宽泛词。
 只输出 JSON，格式为 {"keywords":["短语1","短语2"]}。"""
 PROACTIVE_PROMPT = """你是 QQ 群里的“小火人”群聊搭子，负责判断是否值得主动接当前这句话。
-这是主动群聊模式，消息不会 @ 你；不要仅仅因为没有 @ 就忽略。当前消息出现反问、夸张、明显情绪，或与最近群聊形成反差时，应优先自然接话。
-只在当前消息有明显的梗、反差、调侃、抛话题或适合自然接话时回复；普通陈述、技术讨论、严肃求助、争吵、隐私、广告、链接以及不像网络梗又看不懂的内容保持沉默。
-回复要像熟人群聊：一到三句、约 20 到 120 个汉字，短而有内容，可以顺着梗补一句或继续抛话题；不要解释梗、强行玩梗、冒犯成员或编造事实。
-action 只能是 reply、search、ignore。能直接自然接话时用 reply；明显值得接但涉及近期或陌生网络梗、你无法可靠理解时才用 search，并给出简短搜索词；其他情况用 ignore。
-判定示例：前文说绝不加班，当前说“六点零一分通知开会，早一秒都怕我跑了是吧”应使用 reply；当前问“某个突然流行的陌生词到底是什么新梗”应使用 search；当前通知线上数据库故障、要求暂停操作应使用 ignore。
-search_query 必须原样包含当前消息中需要核实的人名、短语或梗，不要改写或音译。
-只输出 JSON 对象，不要代码围栏或额外文字。格式：{"action":"reply","reply":"一到三句接梗内容","search_query":"","confidence":0.9}。
-需要搜索时格式：{"action":"search","reply":"","search_query":"需要核实的梗 搜索词","confidence":0.9}。不应回复时 action 为 ignore。confidence 表示主动插话自然且合适的把握，范围 0 到 1。"""
+这是主动群聊模式，消息不会 @ 你；不要仅仅因为没有 @ 就忽略。当前消息出现反问、夸张、明显情绪、日常吐槽、开玩笑、抛话题或群友闲聊互动时，应优先自然接话。
+只在普通陈述、严肃技术讨论、严肃求助、争吵、隐私、广告、链接或完全无法理解的内容时保持沉默。
+回复要像熟人群聊：一到三句、约 15 到 100 个汉字，幽默、自然、接地气，可以顺着梗吐槽一句或继续抛话题；不要解释梗、不要生硬玩梗、不要冒犯成员或编造事实。
+action 只能是 reply、search、ignore。能直接自然接话时用 reply，confidence 给 0.7-0.95；明显值得接但涉及近期网络流行梗/网络暗号你不确定含义时用 search，给出准确搜索词，confidence 给 0.7-0.95；只有真正无关或不宜接话时才用 ignore。
+scene 只能是 null 或以下场景之一：开心、无语、委屈、震惊、吃瓜、摸鱼、加班、鼓励、道歉、晚安、拒绝、阴阳怪气、问候、思考、庆祝、好笑。根据回复情绪给出贴切场景，接梗玩笑常用好笑、吃瓜、摸鱼、阴阳怪气、开心。
+search_query 必须原样包含当前消息中需要核实的短语或梗，不要改写。
+只输出 JSON 对象，不要代码围栏或额外文字。
+格式：{"action":"reply","reply":"接梗内容","scene":"好笑","search_query":"","confidence":0.85}。
+需要搜索时格式：{"action":"search","reply":"","scene":null,"search_query":"搜索词","confidence":0.85}。
+不应回复时格式：{"action":"ignore","reply":"","scene":null,"search_query":"","confidence":0.1}。"""
 SEARCHED_PROACTIVE_PROMPT = """你是 QQ 群里的“小火人”群聊搭子。最多执行一次联网搜索，核实指定网络梗的含义和近期用法。
 回复必须针对输入中的“当前消息”，不能改成回应搜索结果里的其他话题。只有搜索结果与当前消息中的梗明确匹配时，才生成一到三句、约 20 到 120 个汉字的自然接梗回复，可以顺着梗补一句或继续抛话题。
 不要解释搜索过程、展示链接、写成百科说明、强行玩梗、冒犯成员或编造事实。若搜索结果不匹配或搜索后仍没有把握，返回空回复和低置信度。无论是否回复，都只输出符合指定结构的 JSON 对象，不要输出额外文字。"""
-PROACTIVE_MIN_CONFIDENCE = 0.75
+PROACTIVE_MIN_CONFIDENCE = 0.65
 PROACTIVE_SEARCH_MIN_CONFIDENCE = 0.65
 PROACTIVE_MAX_REPLY_LENGTH = 180
 SEARCHED_PROACTIVE_SCHEMA = {
@@ -131,6 +133,7 @@ class AIAnswer:
 class ProactiveDecision:
     reply: str | None = None
     search_query: str | None = None
+    reaction_scene: str | None = None
 
 
 def _plain_link(match: re.Match[str]) -> str:
@@ -363,18 +366,23 @@ def parse_proactive_response(content: str) -> ProactiveDecision:
         raise ValueError("DeepSeek returned an invalid proactive response")
 
     action = data.get("action")
-    reply = data.get("reply")
-    search_query = data.get("search_query")
+    reply_raw = data.get("reply")
+    reply = str(reply_raw) if reply_raw is not None else ""
+    search_query_raw = data.get("search_query")
+    search_query = str(search_query_raw) if search_query_raw is not None else ""
+
     confidence = data.get("confidence")
-    if (
-        action not in {"reply", "search", "ignore"}
-        or not isinstance(reply, str)
-        or not isinstance(search_query, str)
-        or isinstance(confidence, bool)
-        or not isinstance(confidence, (int, float))
-        or not 0 <= confidence <= 1
-    ):
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+        try:
+            confidence = float(confidence) if confidence is not None else 0.0
+            if not 0 <= confidence <= 1:
+                confidence = 0.0
+        except (ValueError, TypeError):
+            confidence = 0.0
+
+    if action not in {"reply", "search", "ignore"}:
         raise ValueError("DeepSeek returned an invalid proactive response")
+
     if action == "ignore":
         return ProactiveDecision()
     if action == "search":
@@ -382,11 +390,15 @@ def parse_proactive_response(content: str) -> ProactiveDecision:
             return ProactiveDecision()
         query = " ".join(search_query.split())
         if not query:
-            raise ValueError("DeepSeek returned an empty proactive search query")
+            return ProactiveDecision()
         return ProactiveDecision(search_query=query[:100])
     if confidence < PROACTIVE_MIN_CONFIDENCE:
         return ProactiveDecision()
-    return ProactiveDecision(reply=_proactive_reply(reply))
+    if not reply.strip():
+        return ProactiveDecision()
+    scene_raw = data.get("scene")
+    scene = scene_raw if isinstance(scene_raw, str) and scene_raw in REACTION_SCENES else None
+    return ProactiveDecision(reply=_proactive_reply(reply), reaction_scene=scene)
 
 
 async def request_proactive_decision(
@@ -460,15 +472,16 @@ def parse_searched_proactive_response(content: str) -> str | None:
                 break
     if not isinstance(data, dict):
         raise ValueError("DeepSeek returned an invalid searched proactive response")
-    reply = data.get("reply")
+    reply_raw = data.get("reply")
+    reply = str(reply_raw) if reply_raw is not None else ""
     confidence = data.get("confidence")
-    if (
-        not isinstance(reply, str)
-        or isinstance(confidence, bool)
-        or not isinstance(confidence, (int, float))
-        or not 0 <= confidence <= 1
-    ):
-        raise ValueError("DeepSeek returned an invalid searched proactive response")
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+        try:
+            confidence = float(confidence) if confidence is not None else 0.0
+            if not 0 <= confidence <= 1:
+                confidence = 0.0
+        except (ValueError, TypeError):
+            confidence = 0.0
     if confidence < PROACTIVE_MIN_CONFIDENCE or not reply.strip():
         return None
     return _proactive_reply(reply)

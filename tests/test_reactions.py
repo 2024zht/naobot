@@ -18,7 +18,7 @@ from nao_bot.reactions import (
         (None, "playful", 1.0, 0.0),
         ("开心", "playful", 0.5, 0.0),
         ("开心", "serious", 1.0, 0.1),
-        ("开心", "casual", 1.0, 0.45),
+        ("开心", "casual", 1.0, 0.85),
         ("开心", "playful", 0.8, 0.72),
     ],
 )

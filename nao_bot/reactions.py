@@ -19,8 +19,8 @@ BUILTIN_REACTION_SCENES = {
 }
 REACTION_CONTEXT_CHANCES = {
     "serious": 0.1,
-    "casual": 0.45,
-    "playful": 0.9,
+    "casual": 0.85,
+    "playful": 0.95,
 }
 MIN_REACTION_CONFIDENCE = 0.6
 

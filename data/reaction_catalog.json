@@ -1,0 +1,574 @@
+{
+  "version": 1,
+  "stickers": [
+    {
+      "file": "monthly_salary_cat/01-07f17e0a61f0bcec2907940e333c691012288e8fdca48faadf4861e73d5955ba.webp",
+      "scenes": [
+        "加班",
+        "摸鱼",
+        "晚安",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/02-08b44f9b7f44be825a22552efb5636be6f901e43f0ced79ae64081073b45d5b2.webp",
+      "scenes": [
+        "思考",
+        "加班",
+        "摸鱼"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/03-08fd04bf1d1236c0b24a59320cf99f94ff0bec36d74d1b277a527b9a3945f597.webp",
+      "scenes": [
+        "问候",
+        "开心",
+        "摸鱼",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/04-1c295739372f693a4f2bd906849bfaeb790d0beba832da5d8a442cd07d46b1db.webp",
+      "scenes": [
+        "好笑",
+        "吃瓜",
+        "摸鱼",
+        "开心"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/05-25b4cbc5b75cbe89efb6d8ca8e9900c72faf495a8d05aece1078524cda53680a.webp",
+      "scenes": [
+        "无语",
+        "阴阳怪气",
+        "吃瓜"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/06-25ce073b49976ba610f8e33cb2a3a0782da499b5df919e0cfd91888387a90870.webp",
+      "scenes": [
+        "摸鱼",
+        "吃瓜",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/07-26895430f7e888a60daa3c5b54329ab11a03572560b2ca6f1715b0e64993dc0d.webp",
+      "scenes": [
+        "晚安",
+        "摸鱼",
+        "开心"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/08-400563d3708c53fb2bbdddaefb142457ce8f2ac97d1ad105318b095504551b03.webp",
+      "scenes": [
+        "摸鱼",
+        "加班",
+        "晚安"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/09-43b191f62c46e312a39233ab8d65c1b8f614154cb0fce5660768bfbe3e1a972f.webp",
+      "scenes": [
+        "震惊",
+        "好笑",
+        "委屈"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/10-46cdc06e12e301344ebd7ce13aa422340c92323c0969c1334cca9af52a95530a.webp",
+      "scenes": [
+        "开心",
+        "摸鱼",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/11-49780eceb55add4efc653ee4f86340fb938636700559fe7e2345026692c51369.webp",
+      "scenes": [
+        "摸鱼",
+        "开心",
+        "庆祝"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/12-49b6477d31608a30058829befb3b97d17ec7db6ebb06606d479826da46aa8d73.webp",
+      "scenes": [
+        "好笑",
+        "摸鱼",
+        "阴阳怪气"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/13-4df9676545c4256a43f2fb24cde080d605162ca791dc704c618d202c0aa1db09.webp",
+      "scenes": [
+        "委屈",
+        "加班",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/14-4e5da67e505481bef90abfc4a6be98203a12156eb367c332ea20b06bf0492de6.webp",
+      "scenes": [
+        "摸鱼",
+        "吃瓜",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/15-5473df2bb7949c1ab77cc3a8229ba94a74650779287050aaf5a8dd17eb1ef305.webp",
+      "scenes": [
+        "开心",
+        "鼓励",
+        "庆祝"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/16-5826360f96221cf586d8d9af8d4be91c27f7b3d05c9cbbe4b8c9defe0db27d60.webp",
+      "scenes": [
+        "摸鱼",
+        "无语",
+        "加班"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/17-5f621524d076c94f4b37194ddb74ebc4142c23a91197ad8cfa948b5ebddb9871.webp",
+      "scenes": [
+        "摸鱼",
+        "好笑",
+        "吃瓜"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/18-5ff14b3231653c3e5f79b7d57c550285ffca189c46905d16d56b699331c3ed11.webp",
+      "scenes": [
+        "加班",
+        "委屈",
+        "拒绝",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/19-62591575c90cb8480805630c32c88a28eb3b8a7bcd4f4109ab9b920845a42269.webp",
+      "scenes": [
+        "摸鱼",
+        "吃瓜",
+        "开心"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/20-63dc58cad38ca7ddec832b44032d525de2bfea3566801c58791f92959480ab27.webp",
+      "scenes": [
+        "思考",
+        "晚安",
+        "无语"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/21-64a13a343d0a1f034ba5d4661cbdccf8df68787ba6d1b59216bbbdf3f187b15a.webp",
+      "scenes": [
+        "问候",
+        "开心",
+        "鼓励"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/22-6897be5cda76ab35b8aff34bd7e032c4bab37dca780f58f203814b727f24ac0f.webp",
+      "scenes": [
+        "吃瓜",
+        "摸鱼",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/23-69bee7d8517462ce957dc6df93a127d1e4e9be0ec758ef842c82e17356c9dda0.webp",
+      "scenes": [
+        "晚安",
+        "吃瓜",
+        "开心",
+        "震惊"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/24-6caffcc9041933c11b7491b071516a979069c8c6f9df9f85f1aaa1c8ac5a58c7.webp",
+      "scenes": [
+        "庆祝",
+        "开心",
+        "鼓励"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/25-7147a68644bca73daf445bfb686e02c1769eef7c7ac5d8d21a1038c3923c4919.webp",
+      "scenes": [
+        "摸鱼",
+        "开心",
+        "庆祝"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/26-7175a815609a4f4e43ccba5e097dfaaab4657846d8a122a41de5d946b4ce245e.webp",
+      "scenes": [
+        "摸鱼",
+        "好笑",
+        "阴阳怪气",
+        "拒绝"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/27-76dec37400340f5ec366d6cb18297472864594a6cbff5dcb325584ebfe3fcfc6.webp",
+      "scenes": [
+        "庆祝",
+        "开心",
+        "摸鱼"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/28-7deb67bf59431d8b2e1325768c71a8be86417a7d2b0c11ea7e45a019f47d5aa0.webp",
+      "scenes": [
+        "思考",
+        "无语",
+        "震惊"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/29-80a6913ffe73ce0f81df324449f21f2b03e91e815bc3df0ff3f140639086d814.webp",
+      "scenes": [
+        "震惊",
+        "道歉",
+        "委屈"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/30-90d741d65852e228b642eae59b2abf9995e540aff6eac4da44b4b28b452cbd9c.webp",
+      "scenes": [
+        "摸鱼",
+        "无语",
+        "阴阳怪气"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/31-926e0892ef174436e57339e4966b6e61b11cd78d6b44309b8588e9639ef7f4c1.webp",
+      "scenes": [
+        "摸鱼",
+        "吃瓜",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/32-975a2e64daebe5cd766dc15b630c69443ffd5514504ef5bb1f8cbd363fbd89a2.webp",
+      "scenes": [
+        "开心",
+        "鼓励",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/33-a1f6a96175acabc2c727a011e3dc4349dacf40c484d322ec1f1b6f489cce4bf8.webp",
+      "scenes": [
+        "晚安",
+        "摸鱼"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/34-a3bde93e9c0b6f1e0dd35f8c98c746865eb55bcfd9f95523f0c288cacae7e566.webp",
+      "scenes": [
+        "思考",
+        "好笑",
+        "鼓励"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/35-a42a3c90c2ad664fbe557dacc8590eac077f532545109a15f2861e7b6b552302.webp",
+      "scenes": [
+        "问候",
+        "摸鱼",
+        "开心"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/36-ac8f60738959fbca9419bfd397ccc0c89a578fb3cba5b7acfe92e0094f331dee.webp",
+      "scenes": [
+        "无语",
+        "委屈",
+        "好笑",
+        "思考"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/37-aeeaaa2461f945bfcedd8f6defc976c6473c3306a11e9839f01be53ed1c47390.webp",
+      "scenes": [
+        "委屈",
+        "道歉",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/38-b025fb6e1304d2f7f97111b8c55e65873900043bd5d9d136b66c7308f2cb6eca.webp",
+      "scenes": [
+        "摸鱼",
+        "无语",
+        "阴阳怪气"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/39-b1b949f6a1fd8c18a7ec1b809b1d58b6fc574a7047f277fb836f8f3b5ed77cbf.webp",
+      "scenes": [
+        "吃瓜",
+        "问候",
+        "开心"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/40-b423d8b5487f65994274887b04dbc597a67555be62b6ced321f29b1e2989b92c.webp",
+      "scenes": [
+        "好笑",
+        "开心",
+        "阴阳怪气"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/41-b5789893c33cc7ad9d4df627e65eb955274dace55c9a112ddea677a2d4f7fbf7.webp",
+      "scenes": [
+        "问候",
+        "开心",
+        "摸鱼"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/42-b94bf95931b33953fb8302cfdf485f9bc0e00b6055a92cc765b398b4793b307c.webp",
+      "scenes": [
+        "鼓励",
+        "开心",
+        "庆祝",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/43-bb8511e209992e139df5388611d70021274d3251bf2a0274526b20b2999246d6.webp",
+      "scenes": [
+        "思考",
+        "无语",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/44-c1886fee8d475aca058785c1534a41904f6a27ed0d9a444e79fb153e87cbd090.webp",
+      "scenes": [
+        "无语",
+        "阴阳怪气",
+        "拒绝",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/45-c8a1645ec4a093ff63cbff0c7da33b3537775f86e7adef77e6d48095f0bf5564.webp",
+      "scenes": [
+        "庆祝",
+        "开心",
+        "鼓励"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/46-ca4bf567efef7f8bd0ca45bf0520c5edf02c0a9a19bb414f34738696946834a2.webp",
+      "scenes": [
+        "晚安",
+        "摸鱼",
+        "开心"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/47-cac05935797d81636d220f6493ec4fcec066934127d15ef0e4a2a395616bccb0.webp",
+      "scenes": [
+        "鼓励",
+        "开心",
+        "摸鱼",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/48-d545aabd0b06716a01c722a3e26208e27c89c34fc34e6603ab9972bc99747a84.webp",
+      "scenes": [
+        "思考",
+        "无语",
+        "摸鱼"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/49-d551bbfc465dc953cdaa956a86b74b76b4bee21b42f65ab69d31c5c791a3d6dd.webp",
+      "scenes": [
+        "思考",
+        "无语",
+        "阴阳怪气"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/50-d98fca7f3e76a982be9b7fbc6e49ce6508955e92a6679c435a352051c34a66d9.webp",
+      "scenes": [
+        "摸鱼",
+        "加班",
+        "无语"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/51-dceca6d0a8e618b395b866718d4ac27b661d61fe0df9e335b67674367dcb2e3f.webp",
+      "scenes": [
+        "委屈",
+        "震惊",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/52-dd349c8d7abce5b474169fd657fde6101353e3488426d1ea1cbf11a46f215ee4.webp",
+      "scenes": [
+        "吃瓜",
+        "阴阳怪气",
+        "无语"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/53-e0fd6e9a768f22ee78382a1306cec42aa193a76a5dd3c7c959fdf816741fad90.webp",
+      "scenes": [
+        "无语",
+        "阴阳怪气",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/54-e32f6b6754cea6f19602410191f32856d4ecd06275ebd8acf11b4f8fc2b902d0.webp",
+      "scenes": [
+        "问候",
+        "晚安",
+        "开心"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/55-e4c10bc2bf59f55a17dfb839c36c39a276b1ed8cbe6a00e78c7dc219ea5bb7aa.webp",
+      "scenes": [
+        "开心",
+        "摸鱼",
+        "好笑",
+        "庆祝"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/56-ee76cd4b17e5eada07ce5924922689a31058f49c102c5ff8815e04fcc2a47a96.webp",
+      "scenes": [
+        "吃瓜",
+        "问候",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/57-f15f07bc67045927910284507d91b7a8cca8c55375cd11804fb64688f4f4641c.webp",
+      "scenes": [
+        "拒绝",
+        "阴阳怪气",
+        "无语"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/58-f6ee525d96418d752310002fcd4b1d55c938bd58d4d32ec771ce3beb38328157.webp",
+      "scenes": [
+        "无语",
+        "思考",
+        "阴阳怪气"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/59-f95912f33f4fbad968a5340a67e088384cc04bc4ba9c5163a0a77c8f8d94f01a.webp",
+      "scenes": [
+        "摸鱼",
+        "思考",
+        "晚安"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/60-f98adb16f014d729da6d5c51c2885cb6c8943febbbd9af6d3a6a46c48af33c43.webp",
+      "scenes": [
+        "摸鱼",
+        "吃瓜",
+        "好笑"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/61-fd96209c3b596ea0eaec054ad6d08d7bcae46dbbfd2c543be9ff1cb3ccc6fbe9.webp",
+      "scenes": [
+        "震惊",
+        "阴阳怪气",
+        "好笑",
+        "无语"
+      ],
+      "enabled": true
+    },
+    {
+      "file": "monthly_salary_cat/62-fe3d6109dae00ae14a03b7c3f611e0f41732a26729c1f8ee0677dd5621750ef1.webp",
+      "scenes": [
+        "好笑",
+        "开心",
+        "庆祝"
+      ],
+      "enabled": true
+    }
+  ]
+}

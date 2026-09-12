@@ -2,8 +2,8 @@ import re
 from typing import Iterable
 
 
-PROACTIVE_CHECK_INTERVAL_SECONDS = 8
-PROACTIVE_REPLY_COOLDOWN_SECONDS = 45
+PROACTIVE_CHECK_INTERVAL_SECONDS = 5
+PROACTIVE_REPLY_COOLDOWN_SECONDS = 25
 
 LINK_PATTERN = re.compile(
     r"(?:https?|ftp)://|www\.|(?:[a-z0-9-]+\.)+(?:com|net|org|cn|io|me|top|xyz|site|online|cc|tv|app)(?::\d+)?(?:[/\\?#]\S*)?",
@@ -33,8 +33,23 @@ PLAIN_REPLIES = {
 }
 
 
-def is_allowed_group(peer_id: int, allowed_group_id: int) -> bool:
-    return peer_id == allowed_group_id
+def is_allowed_group(peer_id: int, allowed_group_id: int | Iterable[int]) -> bool:
+    if isinstance(allowed_group_id, int):
+        return peer_id == allowed_group_id
+    return peer_id in allowed_group_id
+
+
+def parse_group_ids(value: str) -> frozenset[int]:
+    if not value.strip():
+        raise ValueError("目标群号不能为空")
+
+    ids: set[int] = set()
+    for item in value.split(","):
+        item = item.strip()
+        if not item.isdecimal() or int(item) <= 0:
+            raise ValueError("群号列表必须是逗号分隔的 QQ 群号")
+        ids.add(int(item))
+    return frozenset(ids)
 
 
 def reply_for_text(text: str, is_tome: bool = False) -> str | None:

@@ -33,7 +33,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: nao-bot:1.5.0
+    image: nao-bot:1.5.1
     container_name: nao-bot
     restart: unless-stopped
     init: true
