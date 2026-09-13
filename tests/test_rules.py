@@ -5,6 +5,8 @@ from nao_bot.rules import (
     TSUNDERE_NUDGE_REPLIES,
     ai_question,
     command_argument,
+    extract_reply_text,
+    format_quoted_message,
     has_management_permission,
     is_allowed_group,
     is_nudge_for_bot,
@@ -14,6 +16,7 @@ from nao_bot.rules import (
     reply_for_text,
     select_target_user_id,
 )
+
 
 
 
@@ -162,4 +165,37 @@ def test_tsundere_nudge_replies_content():
     for reply in TSUNDERE_NUDGE_REPLIES:
         assert isinstance(reply, str)
         assert len(reply) > 3
+
+
+def test_extract_reply_text_from_segments():
+    segments = [
+        {"type": "text", "data": {"text": "今天天气不错"}},
+        {"type": "mention", "data": {"name": "张三"}},
+        {"type": "image", "data": {}},
+        {"type": "face", "data": {}},
+        {"type": "file", "data": {"file_name": "课件.pdf"}},
+    ]
+    extracted = extract_reply_text(segments)
+    assert "今天天气不错" in extracted
+    assert "@张三" in extracted
+    assert "[图片]" in extracted
+    assert "[表情]" in extracted
+    assert "[文件: 课件.pdf]" in extracted
+
+
+def test_format_quoted_message():
+    res = format_quoted_message("李四", "明天交作业", "具体几点交？")
+    assert "【引用的消息（发送人: 李四）】" in res
+    assert "明天交作业" in res
+    assert "具体几点交？" in res
+
+    # Empty question
+    res_empty_q = format_quoted_message("王五", "吃火锅吗", "")
+    assert "吃火锅吗" in res_empty_q
+    assert "请针对上述引用的内容进行回复" in res_empty_q
+
+    # Empty content
+    res_empty_c = format_quoted_message("小明", "", "你好")
+    assert res_empty_c == "你好"
+
 

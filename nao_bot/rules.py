@@ -1,5 +1,6 @@
 import re
-from typing import Iterable
+from typing import Any, Iterable
+
 
 
 PROACTIVE_CHECK_INTERVAL_SECONDS = 5
@@ -161,4 +162,41 @@ TSUNDERE_NUDGE_REPLIES: tuple[str, ...] = (
 
 def is_nudge_for_bot(receiver_id: int, self_id: int, sender_id: int) -> bool:
     return receiver_id == self_id and sender_id != self_id
+
+
+def extract_reply_text(segments: Iterable[Any]) -> str:
+    parts: list[str] = []
+    for segment in segments:
+        seg_type = segment.get("type") if isinstance(segment, dict) else getattr(segment, "type", None)
+        seg_data = segment.get("data", {}) if isinstance(segment, dict) else getattr(segment, "data", {})
+        if seg_type == "text":
+            text = seg_data.get("text", "")
+            if text:
+                parts.append(str(text))
+        elif seg_type == "mention":
+            name = seg_data.get("name", "")
+            uid = seg_data.get("user_id", "")
+            parts.append(f"@{name}" if name else f"@{uid}")
+        elif seg_type == "image":
+            parts.append("[图片]")
+        elif seg_type == "face":
+            parts.append("[表情]")
+        elif seg_type == "file":
+            parts.append(f"[文件: {seg_data.get('file_name', '未知')}]")
+    return "".join(parts).strip()
+
+
+def format_quoted_message(
+    sender_name: str,
+    content: str,
+    question: str,
+) -> str:
+    cleaned_content = content.strip()
+    cleaned_question = question.strip()
+    if not cleaned_content:
+        return cleaned_question
+    if not cleaned_question:
+        return f"【引用的消息（发送人: {sender_name}）】：\n{cleaned_content}\n请针对上述引用的内容进行回复。"
+    return f"【引用的消息（发送人: {sender_name}）】：\n{cleaned_content}\n【用户的问题/回复】：\n{cleaned_question}"
+
 

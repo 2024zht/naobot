@@ -71,6 +71,8 @@ from .rules import (
     TSUNDERE_NUDGE_REPLIES,
     ai_question,
     command_argument,
+    extract_reply_text,
+    format_quoted_message,
     has_management_permission,
     is_allowed_group,
     is_nudge_for_bot,
@@ -81,6 +83,7 @@ from .rules import (
     reply_for_text,
     select_target_user_id,
 )
+
 
 
 try:
@@ -861,11 +864,13 @@ async def handle_guess_person_answer(event: GroupMessageEvent) -> None:
 
 
 def is_ai_command(event: GroupMessageEvent) -> bool:
-    return ai_question(event.get_plaintext(), event.is_tome()) is not None
+    is_tome = event.is_tome() or bool(event.reply and event.reply.sender_id == event.self_id)
+    return ai_question(event.get_plaintext(), is_tome) is not None
 
 
 def faq_answer(event: GroupMessageEvent) -> str | None:
-    if event.data.sender_id == event.self_id or not event.is_tome():
+    is_tome = event.is_tome() or bool(event.reply and event.reply.sender_id == event.self_id)
+    if event.data.sender_id == event.self_id or not is_tome:
         return None
     return faq_store.get(event.get_plaintext().strip())
 
@@ -893,8 +898,43 @@ ai_matcher = on_message(rule=Rule(is_test_group) & Rule(is_ai_command), priority
 
 @ai_matcher.handle()
 async def handle_ai(bot: Bot, event: GroupMessageEvent) -> None:
-    question = ai_question(event.get_plaintext(), event.is_tome())
-    if not question:
+    is_tome = event.is_tome() or bool(event.reply and event.reply.sender_id == event.self_id)
+    question = ai_question(event.get_plaintext(), is_tome)
+
+    # Extract quoted/replied message context if present
+    reply_sender_name = "群友"
+    reply_content = ""
+    if event.reply:
+        if event.reply.sender_id == event.self_id:
+            reply_sender_name = "小nao(你)"
+        elif event.reply.group_member:
+            reply_sender_name = (
+                event.reply.group_member.card
+                or event.reply.group_member.nickname
+                or f"QQ:{event.reply.sender_id}"
+            )
+        else:
+            reply_sender_name = f"QQ:{event.reply.sender_id}"
+
+        reply_content = extract_reply_text(event.reply.segments)
+
+        for seg in event.reply.segments:
+            seg_type = seg.get("type") if isinstance(seg, dict) else getattr(seg, "type", None)
+            seg_data = seg.get("data", {}) if isinstance(seg, dict) else getattr(seg, "data", {})
+            if seg_type == "image":
+                temp_url = seg_data.get("temp_url")
+                if temp_url:
+                    try:
+                        scan_res = await scan_image_url(temp_url)
+                        if scan_res.text.strip():
+                            if reply_content:
+                                reply_content = f"{reply_content} [图片文字: {scan_res.text.strip()}]"
+                            else:
+                                reply_content = f"[图片文字: {scan_res.text.strip()}]"
+                    except Exception:
+                        pass
+
+    if not question and not reply_content:
         await ai_matcher.finish("请在 @我 后面写上你的问题，例如：@nao 你能做什么？")
     if not DEEPSEEK_API_KEY:
         await ai_matcher.finish("AI 问答尚未配置。")
@@ -905,13 +945,18 @@ async def handle_ai(bot: Bot, event: GroupMessageEvent) -> None:
         await ai_matcher.finish("问得太快啦，请过几秒再试。")
     last_ai_requests[event.data.sender_id] = now
 
+    full_prompt_question = format_quoted_message(
+        reply_sender_name, reply_content, question or ""
+    )
+
     try:
         answer = await ask_deepseek(
             DEEPSEEK_API_KEY,
             DEEPSEEK_MODEL,
-            question,
+            full_prompt_question,
             allow_reminder=await can_manage(bot, event),
         )
+
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         logger.exception("DeepSeek request failed")
         await ai_matcher.finish("AI 暂时不可用，请稍后再试。")
@@ -1087,6 +1132,19 @@ async def handle_proactive_message(event: GroupMessageEvent) -> None:
     if text is None:
         return
 
+    # If the message quotes someone, annotate text with the quote
+    if event.reply:
+        quoted = extract_reply_text(event.reply.segments)
+        if quoted:
+            sender = "群友"
+            if event.reply.group_member:
+                sender = (
+                    event.reply.group_member.card
+                    or event.reply.group_member.nickname
+                    or "群友"
+                )
+            text = f"（引用了{sender}的「{quoted[:60]}」）{text}"
+
     group_id = event.data.peer_id
     history = recent_group_messages.setdefault(
         group_id,
@@ -1094,6 +1152,7 @@ async def handle_proactive_message(event: GroupMessageEvent) -> None:
     )
     context = list(history)
     history.append(text)
+
 
     now = monotonic()
     if group_id in proactive_groups_in_flight or not proactive_check_allowed(
