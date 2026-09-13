@@ -7,6 +7,7 @@ from nao_bot.rules import (
     command_argument,
     extract_reply_text,
     format_quoted_message,
+    format_welcome_message,
     has_management_permission,
     is_allowed_group,
     is_nudge_for_bot,
@@ -197,5 +198,17 @@ def test_format_quoted_message():
     # Empty content
     res_empty_c = format_quoted_message("小明", "", "你好")
     assert res_empty_c == "你好"
+
+
+def test_format_welcome_message():
+    assert format_welcome_message(None) == "欢迎加入本群！🎉"
+    assert format_welcome_message("") == "欢迎加入本群！🎉"
+    assert format_welcome_message("   ") == "欢迎加入本群！🎉"
+    res = format_welcome_message("张三")
+    assert "张三" in res
+    assert "欢迎" in res
+    assert "加入本群" in res
+
+
 
 

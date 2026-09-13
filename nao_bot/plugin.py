@@ -73,6 +73,7 @@ from .rules import (
     command_argument,
     extract_reply_text,
     format_quoted_message,
+    format_welcome_message,
     has_management_permission,
     is_allowed_group,
     is_nudge_for_bot,
@@ -1244,12 +1245,87 @@ welcome_matcher = on_notice(priority=10, block=False)
 
 @welcome_matcher.handle()
 async def welcome_member(bot: Bot, event: GroupMemberIncreaseEvent) -> None:
-    if not is_allowed_group(event.data.group_id, TEST_GROUP_ID) or event.data.user_id == event.self_id:
+    group_id = event.data.group_id
+    user_id = event.data.user_id
+    if not is_allowed_group(group_id, TEST_GROUP_ID) or user_id == event.self_id:
         return
-    await bot.send_group_message(
-        group_id=event.data.group_id,
-        message=[MessageSegment.mention(event.data.user_id), MessageSegment.text(" 欢迎加入本群！")],
+
+    logger.info(
+        f"GroupMemberIncreaseEvent received: group={group_id}, user={user_id}"
     )
+
+    # Allow a brief moment for Tencent server and Lagrange internal state to synchronize
+    await asyncio.sleep(1.0)
+
+    member_name: str | None = None
+    try:
+        member = await bot.get_group_member_info(
+            group_id=group_id,
+            user_id=user_id,
+            no_cache=True,
+        )
+        member_name = member.card or member.nickname
+    except Exception:
+        logger.warning(
+            f"Failed to fetch member info for {user_id} in group {group_id}"
+        )
+
+    sticker_seg = None
+    try:
+        reaction_catalog.sync()
+        assets = (
+            reaction_catalog.assets_for_scene("问候")
+            or reaction_catalog.assets_for_scene("庆祝")
+            or reaction_catalog.assets_for_scene("开心")
+        )
+        if assets:
+            chosen_asset = random.choice(assets)
+            img_b64 = reaction_image_base64(chosen_asset)
+            if img_b64:
+                sticker_seg = MessageSegment.image(base64=img_b64, sub_type="sticker")
+    except Exception:
+        logger.exception("Failed to attach sticker to welcome message")
+
+    mention_msg = [
+        MessageSegment.mention(user_id),
+        MessageSegment.text(" 欢迎加入本群！🎉"),
+    ]
+    if sticker_seg:
+        mention_msg.append(sticker_seg)
+
+    try:
+        await bot.send_group_message(
+            group_id=group_id,
+            message=mention_msg,
+        )
+        logger.info(
+            f"Successfully sent welcome message with mention to {user_id} in {group_id}"
+        )
+        return
+    except Exception:
+        logger.warning(
+            f"Failed to send welcome message with mention to {user_id} in {group_id}; falling back to non-mention message"
+        )
+
+    welcome_text = format_welcome_message(member_name)
+    fallback_msg = [
+        MessageSegment.text(welcome_text),
+    ]
+    if sticker_seg:
+        fallback_msg.append(sticker_seg)
+
+    try:
+        await bot.send_group_message(
+            group_id=group_id,
+            message=fallback_msg,
+        )
+        logger.info(
+            f"Successfully sent fallback welcome message for {user_id} in {group_id}"
+        )
+    except Exception:
+        logger.exception(
+            f"Failed to send fallback welcome message in {group_id}"
+        )
 
 
 _last_nudge_reply_time: dict[int, float] = {}

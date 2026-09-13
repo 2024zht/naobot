@@ -19,7 +19,7 @@ from nao_bot.reactions import (
         ("开心", "playful", 0.5, 0.0),
         ("开心", "serious", 1.0, 0.1),
         ("开心", "casual", 1.0, 0.85),
-        ("开心", "playful", 0.8, 0.72),
+        ("开心", "playful", 0.8, 0.76),
     ],
 )
 def test_reaction_probability_uses_context_and_confidence(

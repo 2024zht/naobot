@@ -200,3 +200,9 @@ def format_quoted_message(
     return f"【引用的消息（发送人: {sender_name}）】：\n{cleaned_content}\n【用户的问题/回复】：\n{cleaned_question}"
 
 
+def format_welcome_message(member_name: str | None = None) -> str:
+    if member_name and member_name.strip():
+        return f"欢迎 {member_name.strip()} 加入本群！🎉"
+    return "欢迎加入本群！🎉"
+
+
