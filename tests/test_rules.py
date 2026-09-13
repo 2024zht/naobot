@@ -2,16 +2,19 @@ import pytest
 
 from nao_bot.rules import (
     HELP_TEXT,
+    TSUNDERE_NUDGE_REPLIES,
     ai_question,
     command_argument,
     has_management_permission,
     is_allowed_group,
+    is_nudge_for_bot,
     parse_qq_ids,
     proactive_check_allowed,
     proactive_message_text,
     reply_for_text,
     select_target_user_id,
 )
+
 
 
 @pytest.mark.parametrize(
@@ -145,3 +148,18 @@ def test_proactive_check_respects_request_and_reply_cooldowns():
     assert proactive_check_allowed(100, last_check=90, last_reply=50) is True
     assert proactive_check_allowed(100, last_check=96, last_reply=0) is False
     assert proactive_check_allowed(100, last_check=0, last_reply=80) is False
+
+
+def test_is_nudge_for_bot():
+    assert is_nudge_for_bot(receiver_id=3256024695, self_id=3256024695, sender_id=1991620780) is True
+    assert is_nudge_for_bot(receiver_id=1991620780, self_id=3256024695, sender_id=3256024695) is False
+    assert is_nudge_for_bot(receiver_id=3256024695, self_id=3256024695, sender_id=3256024695) is False
+    assert is_nudge_for_bot(receiver_id=1111111111, self_id=3256024695, sender_id=2222222222) is False
+
+
+def test_tsundere_nudge_replies_content():
+    assert len(TSUNDERE_NUDGE_REPLIES) >= 5
+    for reply in TSUNDERE_NUDGE_REPLIES:
+        assert isinstance(reply, str)
+        assert len(reply) > 3
+

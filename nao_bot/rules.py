@@ -141,3 +141,24 @@ def select_target_user_id(
         if user_id != self_id:
             return user_id
     return reply_sender_id
+
+
+TSUNDERE_NUDGE_REPLIES: tuple[str, ...] = (
+    "哼，别以为拍拍我，我就会对你态度好一点！笨蛋！",
+    "拍什么拍！本小nao也是你能随便乱摸的吗？（脸红扭头）",
+    "干嘛啦！正忙着呢……才、才没有在等你找我聊天！",
+    "再拍我就要把你的黑历史发到群里了！听到了没有！",
+    "拍我干嘛？要是闲得慌就去把代码写了，哼！",
+    "呜哇！突然戳我一下干嘛……我、我可不会因此心软的！",
+    "有事说事，动手动脚的像什么样子……下不为例哦！",
+    "戳一下消耗本机器人 1% 电量！快拿好吃的来赔偿我！",
+    "又拍我？本姑娘很贵的，摸一次扣一百万！",
+    "哼！无事献殷勤……说吧，又想让我帮你吐槽谁了？",
+    "（啪的一下拍回去）礼尚往来！不准再拍了！",
+    "别碰我！发型都被你拍乱了啦……笨蛋！",
+)
+
+
+def is_nudge_for_bot(receiver_id: int, self_id: int, sender_id: int) -> bool:
+    return receiver_id == self_id and sender_id != self_id
+

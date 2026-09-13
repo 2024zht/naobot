@@ -33,9 +33,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: nao-bot:1.5.1
+    image: nao-bot:1.5.2
     container_name: nao-bot
     restart: unless-stopped
+
     init: true
     depends_on:
       lagrange-milky:

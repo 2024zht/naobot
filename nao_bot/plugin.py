@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +10,13 @@ import httpx
 from nonebot import get_bots, get_driver, logger, on_message, on_notice
 from nonebot.adapters import Event
 from nonebot.adapters.milky import Bot, Message, MessageSegment
-from nonebot.adapters.milky.event import GroupFileUploadEvent, GroupMemberIncreaseEvent, GroupMessageEvent
+from nonebot.adapters.milky.event import (
+    GroupFileUploadEvent,
+    GroupMemberIncreaseEvent,
+    GroupMessageEvent,
+    GroupNudgeEvent,
+)
+
 from nonebot.adapters.milky.exception import NetworkError
 from nonebot.exception import IgnoredException
 from nonebot.matcher import Matcher
@@ -61,10 +68,12 @@ from .reminders import (
 from .repeater import RepeatTracker, repeatable_message_text
 from .rules import (
     HELP_TEXT,
+    TSUNDERE_NUDGE_REPLIES,
     ai_question,
     command_argument,
     has_management_permission,
     is_allowed_group,
+    is_nudge_for_bot,
     parse_group_ids,
     parse_qq_ids,
     proactive_check_allowed,
@@ -1182,3 +1191,57 @@ async def welcome_member(bot: Bot, event: GroupMemberIncreaseEvent) -> None:
         group_id=event.data.group_id,
         message=[MessageSegment.mention(event.data.user_id), MessageSegment.text(" 欢迎加入本群！")],
     )
+
+
+_last_nudge_reply_time: dict[int, float] = {}
+nudge_matcher = on_notice(priority=10, block=False)
+
+
+@nudge_matcher.handle()
+async def handle_group_nudge(bot: Bot, event: GroupNudgeEvent) -> None:
+    if not is_allowed_group(event.data.group_id, TEST_GROUP_ID):
+        return
+    if not is_nudge_for_bot(event.data.receiver_id, event.self_id, event.data.sender_id):
+        return
+
+    now = monotonic()
+    last_time = _last_nudge_reply_time.get(event.data.sender_id, 0.0)
+    if now - last_time < 5.0:
+        return
+    _last_nudge_reply_time[event.data.sender_id] = now
+
+    reply_text = random.choice(TSUNDERE_NUDGE_REPLIES)
+    message_segments = [
+        MessageSegment.mention(event.data.sender_id),
+        MessageSegment.text(f" {reply_text}"),
+    ]
+
+    try:
+        reaction_scene = random.choice(["阴阳怪气", "无语", "拒绝", "委屈"])
+        reaction_catalog.sync()
+        assets = reaction_catalog.assets_for_scene(reaction_scene)
+        if assets:
+            chosen_asset = random.choice(assets)
+            img_b64 = reaction_image_base64(chosen_asset)
+            if img_b64:
+                message_segments.append(
+                    MessageSegment.image(base64=img_b64, sub_type="sticker")
+                )
+    except Exception:
+        logger.exception("Failed to attach sticker to tsundere nudge reply")
+
+    await bot.send_group_message(
+        group_id=event.data.group_id,
+        message=message_segments,
+    )
+
+    if random.random() < 0.4:
+        try:
+            await asyncio.sleep(0.5)
+            await bot.send_group_nudge(
+                group_id=event.data.group_id,
+                user_id=event.data.sender_id,
+            )
+        except Exception:
+            logger.debug("Nudge back failed or not supported")
+
